@@ -38,17 +38,8 @@ function createPinElement(name: string): HTMLElement {
   return el;
 }
 
-/** 現在地の点(features/location のアバターが入るまでの仮表示) */
-function createUserElement(): HTMLElement {
-  const el = document.createElement("div");
-  el.setAttribute("role", "img");
-  el.setAttribute("aria-label", "いまいる場所");
-  el.className = "size-7 rounded-full border-4 border-card bg-primary shadow-soft";
-  return el;
-}
-
 /**
- * 案内中の地図表示: 経路の線、目的地のピン、現在地の点。
+ * 案内中の地図表示: 経路の線と目的地のピン(現在地のアバターは features/location の UserLocationMarker)。
  * <MapView> の子に置く。
  */
 export function RouteMapLayer({
@@ -68,7 +59,6 @@ export function RouteMapLayer({
 }) {
   const { map } = useMap();
   const fittedRef = useRef<string | null>(null);
-  const userMarker = useRef<Marker | null>(null);
   const onUserMoveRef = useRef(onUserMove);
 
   useEffect(() => {
@@ -139,30 +129,6 @@ export function RouteMapLayer({
       marker?.remove();
     };
   }, [map, destination.name, destination.position.lng, destination.position.lat]);
-
-  // 現在地の点
-  useEffect(() => {
-    if (!map || !position) return;
-    if (userMarker.current) {
-      userMarker.current.setLngLat([position.lng, position.lat]);
-      return;
-    }
-    let cancelled = false;
-    import("maplibre-gl").then(({ Marker }) => {
-      if (cancelled || userMarker.current) return;
-      userMarker.current = new Marker({ element: createUserElement() }).setLngLat([position.lng, position.lat]).addTo(map);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [map, position]);
-
-  useEffect(() => {
-    return () => {
-      userMarker.current?.remove();
-      userMarker.current = null;
-    };
-  }, [map]);
 
   // 最初に経路が出たら、全体が見えるように合わせる
   useEffect(() => {
