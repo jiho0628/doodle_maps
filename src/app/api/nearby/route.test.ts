@@ -22,12 +22,21 @@ describe("GET /api/nearby", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const res = await get("category=convenience&lat=35.70001&lng=139.70001");
+    // サーバー上での動きにする(window がない)
+    vi.stubGlobal("window", undefined);
+    let res: Response;
+    try {
+      res = await get("category=convenience&lat=35.70001&lng=139.70001");
+    } finally {
+      vi.stubGlobal("window", globalThis);
+    }
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toContain("s-maxage=300");
     const json = await res.json();
     expect(json.places.map((p: { name: string }) => p.name)).toEqual(["近い店", "遠い店"]);
-    expect(fetchMock.mock.calls[0][1].headers["User-Agent"]).toBeUndefined(); // jsdom では window がある
+    // サーバーからはアプリ名を名乗り、GET で聞く
+    expect(fetchMock.mock.calls[0][1].headers["User-Agent"]).toBe("doodle_maps/1.0");
+    expect(fetchMock.mock.calls[0][1].method).toBe("GET");
   });
 
   it("Overpass が全部だめなら 502", async () => {

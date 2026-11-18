@@ -22,48 +22,82 @@ type SearchMode = { kind: "idle" } | { kind: "text"; query: string } | { kind: "
 type ResultState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "done"; places: Place[] }
+  /** more: まだ別のさがし方の結果を待っている(あとから下に足す) */
+  | { status: "done"; places: Place[]; more?: boolean }
   | { status: "error" }
   /** 文字検索のキー(NEXT_PUBLIC_MAPTILER_KEY)が未設定 */
   | { status: "no_key" };
 
-async function runSearch(mode: SearchMode, origin: Origin | null, signal: AbortSignal): Promise<ResultState> {
+async function runSearch(
+  mode: SearchMode,
+  origin: Origin | null,
+  signal: AbortSignal,
+  onPartial: (state: ResultState) => void,
+): Promise<ResultState> {
   const key = publicEnv.maptilerKey;
   if (mode.kind === "idle") return { status: "idle" };
 
   if (mode.kind === "category") {
     if (!origin) return { status: "loading" };
-    return { status: "done", places: await nearbyFast(mode.category, origin.position, key, signal) };
+    return { status: "done", places: await nearbyProgressive(mode.category, origin.position, key, signal, onPartial) };
   }
 
   if (!key) return { status: "no_key" };
   return { status: "done", places: await geocode(mode.query, { key, proximity: origin?.position, signal }) };
 }
 
-/** OpenStreetMap の答えをこの時間だけ待ち、遅ければ MapTiler の結果を先に出す */
-const OSM_GRACE_MS = 3_000;
+/** 同じ店か(名前が同じで、だいたい同じ場所) */
+function samePlace(a: Place, b: Place): boolean {
+  const norm = (n: string) => n.normalize("NFKC").replace(/[\s・\-ー]/g, "");
+  return (
+    norm(a.name) === norm(b.name) &&
+    Math.abs(a.position.lat - b.position.lat) < 0.0008 &&
+    Math.abs(a.position.lng - b.position.lng) < 0.0008
+  );
+}
 
 /**
- * 近くの店をさがす。OpenStreetMap(近い順で正確)と MapTiler(チェーン名で検索、速い)を同時に始め、
- * OpenStreetMap が3秒以内に答えればそれを、遅ければ MapTiler の結果を使う。
+ * 近くの店をさがす。MapTiler(チェーン名で検索、速い)と OpenStreetMap(近い順で正確だが遅いことがある)を
+ * 同時に始め、先に返ってきた結果をすぐ出す。あとから返ってきた結果は、並びを変えずに下へ足す
+ * (押そうとした「行く」の位置がずれないように)。
  */
-async function nearbyFast(category: SearchCategory, center: LngLat, key: string, signal: AbortSignal): Promise<Place[]> {
-  const osm = searchNearby(category, center, { signal });
-  osm.catch(() => undefined);
-  const mapTiler = key ? searchNearbyWithMapTiler(category, center, { key, signal }) : null;
-  mapTiler?.catch(() => undefined);
+async function nearbyProgressive(
+  category: SearchCategory,
+  center: LngLat,
+  key: string,
+  signal: AbortSignal,
+  onPartial: (state: ResultState) => void,
+): Promise<Place[]> {
+  let shown: Place[] = [];
+  let pending = 0;
+  let succeeded = 0;
 
-  const quick = await Promise.race([
-    osm.then((places) => places, () => null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), OSM_GRACE_MS)),
-  ]);
-  if (quick && quick.length > 0) return quick;
+  const add = (places: Place[]) => {
+    const extra = places.filter((p) => !shown.some((s) => samePlace(s, p)));
+    if (extra.length > 0) shown = [...shown, ...extra];
+  };
 
-  if (mapTiler) {
-    const fallback = await mapTiler.catch(() => []);
-    if (fallback.length > 0) return fallback;
-  }
-  return osm;
+  const sources: Promise<Place[]>[] = [searchNearby(category, center, { signal })];
+  if (key) sources.push(searchNearbyWithMapTiler(category, center, { key, signal }));
+  pending = sources.length;
+
+  await Promise.all(
+    sources.map((source) =>
+      source.then(
+        (places) => {
+          pending -= 1;
+          succeeded += 1;
+          add(places);
+          if (pending > 0 && shown.length > 0 && !signal.aborted) onPartial({ status: "done", places: shown, more: true });
+        },
+        () => {
+          pending -= 1;
+        },
+      ),
+    ),
+  );
+  if (succeeded === 0) throw new Error("nearby search failed");
+  return shown;
 }
 
 /** 検索画面: 文字でさがす+「よく使う」ボタン。結果の「行く」1回で道案内がはじまる */
@@ -89,7 +123,9 @@ export function SearchScreen() {
     // 名前での検索は現在地を待たずにすぐ始める(近くをさがすときだけ待つ)
     if (mode.kind === "idle" || (mode.kind === "category" && !categoryOrigin)) return;
     const controller = new AbortController();
-    runSearch(mode, mode.kind === "category" ? categoryOrigin : originRef.current, controller.signal)
+    runSearch(mode, mode.kind === "category" ? categoryOrigin : originRef.current, controller.signal, (partial) => {
+      if (!controller.signal.aborted) setResult(partial);
+    })
       .then((next) => {
         if (!controller.signal.aborted) setResult(next);
       })
@@ -243,6 +279,11 @@ function Results({ heading, result, origin }: { heading: string | null; result: 
         </p>
       ) : null}
       <ResultBody result={result} origin={origin} />
+      {result.status === "done" && result.more ? (
+        <p className="m-0 text-center text-[15px] text-ink-soft" role="status">
+          ほかにもさがしています…
+        </p>
+      ) : null}
       {result.status === "done" && result.places.length > 0 ? (
         <p className="m-0 text-center text-[15px] leading-relaxed text-ink-soft">
           右の「行く」を押すだけで道案内がはじまります
