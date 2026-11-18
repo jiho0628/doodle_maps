@@ -137,7 +137,9 @@ export function LocationLayer() {
       </IconButton>
   );
 
-  const card = showHelp ? (
+  // ほかの機能(お気に入りのカードなど)が下にカードを出している間は、こちらのカードは控える
+  const [otherBottomCard, setOtherBottomCard] = useState(false);
+  const card = otherBottomCard ? null : showHelp ? (
     <LocationHelpCard
       status={location.status}
       platform={platform}
@@ -159,9 +161,13 @@ export function LocationLayer() {
         {/* 小さい画面でもはみ出さないよう、自分のカードを出す間は現在地ボタンだけにする */}
         {card ? null : <AvatarButton />}
         {locateButton}
-        <BottomOverlaySpacer />
+        <BottomOverlaySpacer onOtherCardChange={setOtherBottomCard} />
       </MapOverlay>
-      {card ? <MapOverlay position="bottom">{card}</MapOverlay> : null}
+      {card ? (
+        <MapOverlay position="bottom" className={OWN_CARD_CLASS}>
+          {card}
+        </MapOverlay>
+      ) : null}
     </>
   );
 }
@@ -170,7 +176,9 @@ export function LocationLayer() {
  * 右下のボタンが、下部のカード(この機能の案内、お気に入りのカードなど、どの機能のものでも)に
  * 重ならないよう、下部に出ているものの高さぶんだけ持ち上げる。
  */
-function BottomOverlaySpacer() {
+const OWN_CARD_CLASS = "location-card-overlay";
+
+function BottomOverlaySpacer({ onOtherCardChange }: { onOtherCardChange: (present: boolean) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
 
@@ -179,7 +187,9 @@ function BottomOverlaySpacer() {
     if (!root || typeof ResizeObserver === "undefined") return;
     const measure = () => {
       let h = 0;
-      root.querySelectorAll<HTMLElement>(':scope > [data-map-overlay="bottom"]').forEach((el) => {
+      const overlays = root.querySelectorAll<HTMLElement>(':scope > [data-map-overlay="bottom"]');
+      onOtherCardChange(Array.from(overlays).some((el) => !el.classList.contains(OWN_CARD_CLASS) && el.offsetHeight > 0));
+      overlays.forEach((el) => {
         // MapOverlay の下の余白(pb-4)はボタン側にもあるので差し引く
         const pad = parseFloat(getComputedStyle(el).paddingBottom) || 0;
         h = Math.max(h, el.offsetHeight > pad ? el.offsetHeight - pad : 0);
@@ -199,7 +209,7 @@ function BottomOverlaySpacer() {
       mutation.disconnect();
       resize.disconnect();
     };
-  }, []);
+  }, [onOtherCardChange]);
 
   return <div ref={ref} aria-hidden="true" className="pointer-events-none! -mt-3" style={{ height }} />;
 }
