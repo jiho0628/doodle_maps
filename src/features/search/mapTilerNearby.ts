@@ -14,7 +14,8 @@ function bboxAround(center: LngLat, radiusM: number): [number, number, number, n
 
 /**
  * MapTiler で近くの店をさがす(OpenStreetMap が遅い・使えないときの代わり)。
- * チェーン名などを同時に検索し、近くの四角の中だけに絞って近い順に並べる。
+ * チェーン名などを店・施設(types=poi)にしぼって同時に検索し、近くの四角の中だけに絞って近い順に並べる。
+ * (types=poi がないと MapTiler は店を検索せず、いつも0件になっていた)
  */
 export async function searchNearbyWithMapTiler(
   category: SearchCategory,
@@ -24,7 +25,7 @@ export async function searchNearbyWithMapTiler(
   const radius = Math.max(category.radiusM * 2, 2000);
   const bbox = bboxAround(center, radius);
   const settled = await Promise.allSettled(
-    category.mapTilerQueries.map((q) => geocode(q, { ...options, proximity: center, bbox, limit: 10 })),
+    category.mapTilerQueries.map((q) => geocode(q, { ...options, proximity: center, bbox, limit: 10, types: "poi" })),
   );
   if (settled.every((r) => r.status === "rejected")) throw new Error("maptiler unavailable");
   const seen = new Set<string>();

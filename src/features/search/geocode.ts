@@ -11,7 +11,7 @@ export function buildGeocodeUrl(
   query: string,
   key: string,
   proximity?: LngLat | null,
-  extra: { bbox?: [number, number, number, number]; limit?: number } = {},
+  extra: { bbox?: [number, number, number, number]; limit?: number; types?: string } = {},
 ): string {
   const params = new URLSearchParams({
     key,
@@ -21,6 +21,8 @@ export function buildGeocodeUrl(
     country: "jp",
   });
   if (proximity) params.set("proximity", `${proximity.lng.toFixed(5)},${proximity.lat.toFixed(5)}`);
+  // 店・施設(poi)は初期設定では検索対象に入っていないため、店をさがすときは types=poi を付ける
+  if (extra.types) params.set("types", extra.types);
   if (extra.bbox) params.set("bbox", extra.bbox.map((n) => n.toFixed(5)).join(","));
   return `${MAPTILER_GEOCODING_URL}/${encodeURIComponent(query)}.json?${params.toString()}`;
 }
@@ -87,12 +89,31 @@ export async function geocode(
     proximity?: LngLat | null;
     bbox?: [number, number, number, number];
     limit?: number;
+    types?: string;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
   },
 ): Promise<Place[]> {
-  const { key, proximity, bbox, limit, signal, fetchImpl = fetch } = options;
-  const res = await fetchImpl(buildGeocodeUrl(query, key, proximity, { bbox, limit }), { signal });
+  const { key, proximity, bbox, limit, types, signal, fetchImpl = fetch } = options;
+  const res = await fetchImpl(buildGeocodeUrl(query, key, proximity, { bbox, limit, types }), { signal });
   if (!res.ok) throw new Error(`geocoding ${res.status}`);
   return parseGeocodeResponse(await res.json());
+}
+
+/**
+ * 文字での検索。地名・住所(初期設定)と、店・施設(poi)を同時にさがしてまとめる。
+ * MapTiler は初期設定では店・施設を検索しないため、「スターバックス」などが出なかった。
+ */
+export async function searchPlacesByText(
+  query: string,
+  options: { key: string; proximity?: LngLat | null; signal?: AbortSignal; fetchImpl?: typeof fetch },
+): Promise<Place[]> {
+  const settled = await Promise.allSettled([geocode(query, options), geocode(query, { ...options, types: "poi" })]);
+  const failed = settled.find((r) => r.status === "rejected");
+  if (failed && settled.every((r) => r.status === "rejected")) throw failed.reason;
+  const seen = new Set<string>();
+  return settled
+    .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+    .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+    .slice(0, 10);
 }

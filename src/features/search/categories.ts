@@ -21,7 +21,7 @@ export type SearchCategory = {
 
 export const SEARCH_CATEGORIES: SearchCategory[] = [
   { id: "cafe", label: "カフェ", overpassFilter: '["amenity"="cafe"]', radiusM: 1200, mapTilerQueries: ["カフェ", "スターバックス", "ドトール", "タリーズ", "コメダ珈琲", "喫茶"], aliases: ["かふぇ", "喫茶", "喫茶店", "きっさてん", "コーヒー", "珈琲", "cafe", "coffee"] },
-  { id: "convenience", label: "コンビニ", overpassFilter: '["shop"="convenience"]', radiusM: 1200, mapTilerQueries: ["セブン-イレブン", "ローソン", "ファミリーマート", "ミニストップ", "デイリーヤマザキ"], aliases: ["こんびに", "コンビニエンスストア", "コンビニー", "convenience", "conbini", "konbini"] },
+  { id: "convenience", label: "コンビニ", overpassFilter: '["shop"="convenience"]', radiusM: 1200, mapTilerQueries: ["コンビニ", "セブン-イレブン", "ローソン", "ファミリーマート", "ミニストップ", "デイリーヤマザキ"], aliases: ["こんびに", "コンビニエンスストア", "コンビニー", "convenience", "conbini", "konbini"] },
   { id: "station", label: "駅", overpassFilter: '["railway"="station"]', radiusM: 3000, mapTilerQueries: ["駅"], aliases: ["えき", "近くの駅", "station"] },
   { id: "toilet", label: "トイレ", overpassFilter: '["amenity"="toilets"]', radiusM: 1000, unnamedLabel: "公衆トイレ", mapTilerQueries: ["公衆トイレ", "トイレ"], aliases: ["といれ", "お手洗い", "おてあらい", "手洗い", "便所", "公衆トイレ", "toilet", "wc"] },
 ];

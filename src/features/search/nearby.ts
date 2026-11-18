@@ -11,6 +11,15 @@ export const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 /** サーバーから Overpass に聞くときに名乗るアプリ名 */
 export const OVERPASS_USER_AGENT = "doodle_maps/1.0";
 
+/**
+ * サーバーから聞くときのヘッダー。Overpass は 2026年4月から、名乗らない・連絡先のないアクセスを
+ * 406 で断るようになったため、アプリ名にこのサイトの URL を添え、Referer も付ける。
+ */
+export function overpassServerHeaders(siteOrigin?: string): Record<string, string> {
+  if (!siteOrigin) return { "User-Agent": OVERPASS_USER_AGENT };
+  return { "User-Agent": `${OVERPASS_USER_AGENT} (+${siteOrigin})`, Referer: `${siteOrigin}/` };
+}
+
 /** 本家が混んでいる(429/504)ときに順に試す予備サーバー */
 export const OVERPASS_ENDPOINTS = [
   OVERPASS_URL,
@@ -18,8 +27,11 @@ export const OVERPASS_ENDPOINTS = [
   "https://overpass.kumi.systems/api/interpreter",
 ];
 
-/** 1台あたりの待ち時間 */
-const ENDPOINT_TIMEOUT_MS = 3_500;
+/**
+ * 1回の問い合わせで待つ時間。予備サーバーは混んでいると 3〜6 秒かかるので、
+ * 短すぎると「全部だめ」になる(以前の 3.5 秒では京都で全滅していた)
+ */
+export const ENDPOINT_TIMEOUT_MS = 7_000;
 
 /** 一度に出す件数 */
 const MAX_RESULTS = 10;
@@ -81,21 +93,32 @@ async function queryOverpass(
   query: string,
   fetchImpl: typeof fetch,
   signal: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<unknown> {
   // GET + ヘッダーなし(ブラウザでは「単純なリクエスト」になり、事前確認の往復がない)。
   // 独自の Accept を付けると overpass-api.de が 406 で断るため付けない。
-  // サーバーから呼ぶときだけ、利用ルールどおりアプリ名を名乗る。
+  // サーバーから呼ぶときだけ、利用ルールどおりアプリ名と連絡先(サイトの URL)を名乗る。
   const url = `${endpoint}?${new URLSearchParams({ data: query }).toString()}`;
-  const res = await fetchImpl(url, {
-    method: "GET",
-    headers: typeof window === "undefined" ? { "User-Agent": OVERPASS_USER_AGENT } : undefined,
-    signal,
-  });
-  if (!res.ok) throw new Error(`overpass ${res.status}`);
+  const host = new URL(endpoint).host;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "GET",
+      headers: headers ?? (typeof window === "undefined" ? overpassServerHeaders() : undefined),
+      signal,
+    });
+  } catch (error) {
+    // どこで・なぜ失敗したかをあとで調べられるよう、サーバー名を付ける
+    // Node の fetch は「fetch failed」とだけ言うので、本当の理由(cause)も添える
+    const cause = error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : "";
+    const reason = signal.aborted ? "timeout" : error instanceof Error ? `${error.message}${cause}` : String(error);
+    throw new Error(`${host}: ${reason}`);
+  }
+  if (!res.ok) throw new Error(`${host}: HTTP ${res.status}`);
   const json = (await res.json()) as { elements?: unknown; remark?: string };
   // 混んでいると 200 のまま remark にエラーが入り elements が空になる
   if (!Array.isArray(json.elements) || (json.elements.length === 0 && json.remark)) {
-    throw new Error(`overpass remark: ${json.remark ?? "no elements"}`);
+    throw new Error(`${host}: remark ${json.remark ?? "no elements"}`);
   }
   return json;
 }
@@ -106,16 +129,23 @@ async function raceOverpass(
   query: string,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
+  timeoutMs = ENDPOINT_TIMEOUT_MS,
 ): Promise<unknown> {
   const controller = new AbortController();
-  const signals = [controller.signal, AbortSignal.timeout(ENDPOINT_TIMEOUT_MS)];
+  const signals = [controller.signal, AbortSignal.timeout(timeoutMs)];
   if (signal) signals.push(signal);
   const combined = AbortSignal.any(signals);
   try {
-    return await Promise.any(endpoints.map((e) => queryOverpass(e, query, fetchImpl, combined)));
+    return await Promise.any(endpoints.map((e) => queryOverpass(e, query, fetchImpl, combined, headers)));
   } catch (error) {
     if (signal?.aborted) throw signal.reason ?? error;
-    throw error instanceof AggregateError ? (error.errors.at(-1) ?? error) : error;
+    // 全サーバーの理由をまとめる(例: "overpass-api.de: HTTP 406; overpass.kumi.systems: timeout")
+    if (error instanceof AggregateError) {
+      const reasons = error.errors.map((e) => (e instanceof Error ? e.message : String(e)));
+      throw new Error(`overpass failed: ${reasons.join("; ")}`);
+    }
+    throw error;
   } finally {
     controller.abort();
   }
@@ -129,11 +159,11 @@ async function raceOverpass(
 export async function fetchNearbyFromOverpass(
   category: SearchCategory,
   center: LngLat,
-  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; endpoints?: string[] } = {},
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; endpoints?: string[]; headers?: Record<string, string>; timeoutMs?: number } = {},
 ): Promise<Place[]> {
-  const { signal, fetchImpl = fetch, endpoints = OVERPASS_ENDPOINTS } = options;
+  const { signal, fetchImpl = fetch, endpoints = OVERPASS_ENDPOINTS, headers, timeoutMs } = options;
   for (const radius of [category.radiusM, category.radiusM * 3]) {
-    const json = await raceOverpass(endpoints, buildOverpassQuery(category, center, radius), fetchImpl, signal);
+    const json = await raceOverpass(endpoints, buildOverpassQuery(category, center, radius), fetchImpl, signal, headers, timeoutMs);
     const places = parseOverpassResponse(json, category, center);
     if (places.length > 0) return places;
   }
@@ -178,17 +208,22 @@ async function searchNearbyUncached(
     lng: center.lng.toFixed(4),
   });
   try {
-    // サーバー側は1回 3.5 秒まで(範囲を広げると2回)なので、それ以上は待たない
-    const timeout = AbortSignal.timeout(8_000);
+    // サーバー側は1回 7 秒まで(範囲を広げると2回)なので、それ以上は待たない
+    const timeout = AbortSignal.timeout(ENDPOINT_TIMEOUT_MS * 2 + 1_000);
     const res = await fetchImpl(`/api/nearby?${params.toString()}`, {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     if (res.ok) {
       const json = (await res.json()) as { places?: Place[] };
       if (Array.isArray(json.places)) return json.places;
+    } else {
+      // 502 のときはサーバーが理由(detail)を返す。DevTools のコンソールで見られるようにする
+      const body = (await res.json().catch(() => null)) as { detail?: string } | null;
+      console.warn("[nearby] /api/nearby failed", res.status, body?.detail ?? "");
     }
   } catch (error) {
     if (signal?.aborted) throw error;
+    console.warn("[nearby] /api/nearby failed", error instanceof Error ? error.message : error);
   }
   return fetchNearbyFromOverpass(category, center, { signal, fetchImpl });
 }

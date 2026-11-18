@@ -1,5 +1,5 @@
 import { findCategory } from "@/features/search/categories";
-import { fetchNearbyFromOverpass } from "@/features/search/nearby";
+import { fetchNearbyFromOverpass, overpassServerHeaders } from "@/features/search/nearby";
 
 /**
  * 近くのカフェ・コンビニ・駅・トイレ(OpenStreetMap / Overpass API の中継)。
@@ -9,7 +9,7 @@ import { fetchNearbyFromOverpass } from "@/features/search/nearby";
  * GET /api/nearby?category=convenience&lat=35.68&lng=139.76
  *  200 { places: Place[] }(近い順)
  *  400 { error: "bad_request" }
- *  502 { error: "upstream" }
+ *  502 { error: "upstream", detail: "overpass-api.de: HTTP 406; …" }(サーバーごとの失敗理由)
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -23,13 +23,16 @@ export async function GET(request: Request) {
   const center = { lat: Math.round(lat * 1e4) / 1e4, lng: Math.round(lng * 1e4) / 1e4 };
 
   try {
-    const places = await fetchNearbyFromOverpass(category, center);
+    // Overpass にはこのサイトの URL を連絡先として名乗る(名乗らないと 406 で断られる)
+    const places = await fetchNearbyFromOverpass(category, center, { headers: overpassServerHeaders(url.origin) });
     return Response.json(
       { places },
       { headers: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" } },
     );
   } catch (error) {
-    console.warn("[api/nearby] Overpass error", error instanceof Error ? error.message : error);
-    return Response.json({ error: "upstream" }, { status: 502 });
+    const detail = error instanceof Error ? error.message : String(error);
+    // Vercel の Logs で「[api/nearby]」と検索すると見られる
+    console.warn("[api/nearby] Overpass error", detail);
+    return Response.json({ error: "upstream", detail }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }

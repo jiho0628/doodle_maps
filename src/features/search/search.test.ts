@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { findCategory, matchCategory } from "./categories";
 import { buildGeocodeUrl, parseGeocodeResponse } from "./geocode";
-import { buildOverpassQuery, fetchNearbyFromOverpass, parseOverpassResponse } from "./nearby";
+import { buildOverpassQuery, ENDPOINT_TIMEOUT_MS, fetchNearbyFromOverpass, overpassServerHeaders, parseOverpassResponse } from "./nearby";
+import { searchNearbyWithMapTiler } from "./mapTilerNearby";
 import { vi } from "vitest";
 
 describe("MapTiler 文字検索", () => {
@@ -12,6 +13,23 @@ describe("MapTiler 文字検索", () => {
     expect(url.searchParams.get("language")).toBe("ja");
     expect(url.searchParams.get("country")).toBe("jp");
     expect(url.searchParams.get("proximity")).toBe("139.76712,35.68123");
+    expect(url.searchParams.has("types")).toBe(false);
+  });
+
+  it("近くの店は types=poi で店・施設にしぼってさがす(初期設定では店が出ないため)", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      const q = decodeURIComponent(u.pathname.split("/").pop()!.replace(".json", ""));
+      return Response.json({
+        features:
+          u.searchParams.get("types") === "poi" && q === "ローソン"
+            ? [{ id: "poi.9", text: "ローソン 四条店", center: [135.7601, 35.0036] }]
+            : [],
+      });
+    });
+    const places = await searchNearbyWithMapTiler(findCategory("convenience")!, { lng: 135.76, lat: 35.0035 }, { key: "K", fetchImpl });
+    expect(places.map((p) => p.name)).toEqual(["ローソン 四条店"]);
+    for (const [url] of fetchImpl.mock.calls) expect(new URL(String(url)).searchParams.get("types")).toBe("poi");
   });
 
   it("結果を Place にする(住所は「都道府県 市区町村 …」の順)", () => {
@@ -116,17 +134,17 @@ describe("fetchNearbyFromOverpass", () => {
     expect(places).toHaveLength(1);
   });
 
-  it("返事のないサーバーは待ちすぎない", async () => {
-    vi.useFakeTimers();
+  it("返事のないサーバーは待ちすぎない(理由は timeout)", async () => {
     const fetchImpl = vi.fn().mockImplementation(
       (_url: string, init: RequestInit) =>
         new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted")))),
     );
-    const promise = fetchNearbyFromOverpass(conv, center, { fetchImpl });
-    const assertion = expect(promise).rejects.toThrow();
-    await vi.advanceTimersByTimeAsync(3_600);
-    await assertion;
-    vi.useRealTimers();
+    const started = Date.now();
+    await expect(fetchNearbyFromOverpass(conv, center, { fetchImpl, timeoutMs: 50 })).rejects.toThrow(
+      /overpass-api\.de: timeout/,
+    );
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(ENDPOINT_TIMEOUT_MS).toBeLessThanOrEqual(8_000);
   });
 
   it("GET で送り、独自の Accept ヘッダーは付けない(406 対策)", async () => {
@@ -139,8 +157,19 @@ describe("fetchNearbyFromOverpass", () => {
     expect(new URL(url).searchParams.get("data")).toContain('nw["shop"="convenience"]');
   });
 
-  it("全部だめならエラー", async () => {
-    const fetchImpl = vi.fn().mockImplementation(async () => new Response("", { status: 504 }));
-    await expect(fetchNearbyFromOverpass(conv, center, { fetchImpl })).rejects.toThrow();
+  it("全部だめなら、サーバーごとの理由をまとめたエラー", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) =>
+      new Response("", { status: new URL(url).host === "overpass-api.de" ? 406 : 504 }),
+    );
+    await expect(fetchNearbyFromOverpass(conv, center, { fetchImpl })).rejects.toThrow(
+      /overpass-api\.de: HTTP 406.*overpass\.kumi\.systems: HTTP 504/,
+    );
+  });
+
+  it("サーバーからはサイトの URL を連絡先として名乗る", () => {
+    expect(overpassServerHeaders("https://example.app")).toEqual({
+      "User-Agent": "doodle_maps/1.0 (+https://example.app)",
+      Referer: "https://example.app/",
+    });
   });
 });

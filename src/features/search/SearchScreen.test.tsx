@@ -35,9 +35,12 @@ describe("SearchScreen", () => {
 
   it("文字で検索すると MapTiler に問い合わせる", async () => {
     env.publicEnv.maptilerKey = "KEY";
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
       Response.json({
-        features: [{ id: "1", text: "東京駅", place_name: "東京駅, 千代田区, 東京都, 日本", center: [139.767, 35.681] }],
+        features:
+          new URL(url).searchParams.get("types") === "poi"
+            ? [{ id: "p1", text: "スターバックス 東京駅店", center: [139.766, 35.681] }]
+            : [{ id: "1", text: "東京駅", place_name: "東京駅, 千代田区, 東京都, 日本", center: [139.767, 35.681] }],
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -48,6 +51,8 @@ describe("SearchScreen", () => {
     const list = await screen.findByRole("list");
     expect(within(list).getByText("東京駅")).toBeInTheDocument();
     expect(within(list).getByText("東京都 千代田区")).toBeInTheDocument();
+    // 店・施設(types=poi)も同時にさがす
+    expect(within(list).getByText("スターバックス 東京駅店")).toBeInTheDocument();
     expect(String(fetchMock.mock.calls[0][0])).toContain("api.maptiler.com/geocoding/");
   });
 
@@ -116,11 +121,40 @@ describe("SearchScreen", () => {
     expect(await screen.findByText("ローソン 東京駅前店", undefined, { timeout: 5000 })).toBeInTheDocument();
   }, 10_000);
 
-  it("近くの検索が失敗したら、やさしいエラーを出す", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("", { status: 429 })));
+  it("近くの検索が失敗したら、通信のエラーと「もう一度ためす」を出す", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let fail = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) =>
+        fail
+          ? new Response("", { status: 429 })
+          : String(url).startsWith("/api/nearby")
+            ? Response.json({ places: [{ id: "osm:node/5", name: "公衆トイレ", position: { lng: 139.76, lat: 35.68 } }] })
+            : Response.json({ features: [] }),
+      ),
+    );
     render(<SearchScreen />);
     await userEvent.click(screen.getByRole("button", { name: "トイレ" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("うまくさがせませんでした");
+    expect(await screen.findByRole("alert")).toHaveTextContent("通信がうまくいかなかった");
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "もう一度ためす" }));
+    expect(await screen.findByRole("link", { name: "公衆トイレへ行く" })).toBeInTheDocument();
+  });
+
+  it("OpenStreetMap が失敗して MapTiler が0件なら「見つからない」ではなく通信のエラーにする", async () => {
+    env.publicEnv.maptilerKey = "KEY";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) =>
+        String(url).includes("maptiler") ? Response.json({ features: [] }) : new Response("", { status: 406 }),
+      ),
+    );
+    render(<SearchScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "コンビニ" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("通信がうまくいかなかった");
+    expect(screen.queryByText(/見つかりませんでした/)).not.toBeInTheDocument();
   });
 });
 
