@@ -11,7 +11,7 @@ import { CATEGORY_TONE, CategoryIcon } from "./CategoryIcon";
 import { matchCategory, SEARCH_CATEGORIES, type SearchCategory } from "./categories";
 import { searchPlacesByText } from "./geocode";
 import { searchNearbyWithMapTiler } from "./mapTilerNearby";
-import { searchNearby } from "./nearby";
+import { resetNearbyFailure, searchNearby } from "./nearby";
 import { useOrigin, type Origin } from "./useOrigin";
 
 /** 打ち終わってからこの時間で検索する */
@@ -254,7 +254,10 @@ export function SearchScreen() {
         </div>
       </section>
 
-      <Results heading={heading} result={result} origin={origin} onRetry={() => setAttempt((n) => n + 1)} />
+      <Results heading={heading} result={result} origin={origin} onRetry={() => {
+          resetNearbyFailure();
+          setAttempt((n) => n + 1);
+        }} />
     </div>
   );
 }

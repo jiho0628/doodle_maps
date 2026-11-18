@@ -32,6 +32,21 @@ describe("MapTiler 文字検索", () => {
     for (const [url] of fetchImpl.mock.calls) expect(new URL(String(url)).searchParams.get("types")).toBe("poi");
   });
 
+  it("まず歩ける範囲だけでさがし、遠い店で近くの店がうもれないようにする", async () => {
+    const center = { lng: 135.76, lat: 35.025 };
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+      const [w, , e] = new URL(url).searchParams.get("bbox")!.split(",").map(Number);
+      const small = e - w < 0.04; // 半径 1.2km の四角
+      return Response.json({
+        features: small
+          ? [1, 2, 3].map((i) => ({ id: `n${i}`, text: `近いカフェ${i}`, center: [135.76 + i * 0.001, 35.025] }))
+          : [{ id: "far", text: "遠いカフェ", center: [135.79, 35.025] }],
+      });
+    });
+    const places = await searchNearbyWithMapTiler(findCategory("cafe")!, center, { key: "K", fetchImpl });
+    expect(places.map((p) => p.name)).toEqual(["近いカフェ1", "近いカフェ2", "近いカフェ3"]);
+  });
+
   it("結果を Place にする(住所は「都道府県 市区町村 …」の順)", () => {
     const places = parseGeocodeResponse({
       features: [
