@@ -166,7 +166,7 @@ export function SearchScreen() {
                 aria-pressed={selected}
                 onClick={() => chooseCategory(c)}
                 className={cn(
-                  "flex h-[76px] flex-col items-center justify-center gap-1 whitespace-nowrap rounded-[22px] text-base font-bold text-ink transition-transform active:scale-95",
+                  "flex h-[76px] flex-col items-center justify-center gap-1 whitespace-nowrap rounded-[22px] text-base font-bold text-ink transition-[transform,box-shadow] duration-150 active:scale-95",
                   tone.bg,
                   selected && "ring-[3px] ring-coral",
                 )}
@@ -221,32 +221,32 @@ function ResultBody({ result, origin }: { result: ResultState; origin: Origin | 
   switch (result.status) {
     case "loading":
       return (
-        <Card className="p-6 text-center text-lg font-bold text-ink-soft" role="status">
+        <Card className="animate-fade-in p-6 text-center text-lg font-bold text-ink-soft" role="status">
           さがしています…
         </Card>
       );
     case "no_key":
       return (
-        <Card className="p-6 text-lg leading-relaxed text-ink-soft" role="alert">
+        <Card className="animate-rise-in p-6 text-lg leading-relaxed text-ink-soft" role="alert">
           いまは文字での検索が使えません。上の「よく使う」ボタンからさがしてください。
         </Card>
       );
     case "error":
       return (
-        <Card className="p-6 text-lg leading-relaxed text-ink-soft" role="alert">
+        <Card className="animate-rise-in p-6 text-lg leading-relaxed text-ink-soft" role="alert">
           うまくさがせませんでした。電波のよい場所で、もう一度ためしてください。
         </Card>
       );
     case "done":
       if (result.places.length === 0) {
         return (
-          <Card className="p-6 text-lg leading-relaxed text-ink-soft" role="status">
+          <Card className="animate-rise-in p-6 text-lg leading-relaxed text-ink-soft" role="status">
             見つかりませんでした。別の言葉でためしてください。
           </Card>
         );
       }
       return (
-        <ul className="m-0 flex list-none flex-col gap-3 p-0">
+        <ul className="m-0 flex animate-rise-in list-none flex-col gap-3 p-0">
           {result.places.map((place) => (
             <li key={place.id}>
               <ResultCard place={place} origin={origin} />

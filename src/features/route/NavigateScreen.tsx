@@ -42,6 +42,10 @@ function Navigation({ destination }: { destination: Place }) {
     return () => clearTimeout(t);
   }, [hasRoute]);
 
+  const positionStatus = location.position ? "ok" : location.status;
+  // 表示する内容が切りかわったときだけ、シートの中身をふわっと出しなおす
+  const sheetKey = isPositionProblem(positionStatus) ? "position-problem" : nav.phase.kind;
+
   const retry = () => {
     setFollow(false);
     retryLocation();
@@ -62,17 +66,12 @@ function Navigation({ destination }: { destination: Place }) {
         {navigating ? <TurnBanner nav={nav} /> : null}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-end gap-3 [&>*]:pointer-events-auto">
           {navigating && !follow ? (
-            <IconButton label="現在地にもどる" className="mr-5" onClick={() => setFollow(true)}>
+            <IconButton label="現在地にもどる" className="mr-5 animate-fade-in" onClick={() => setFollow(true)}>
               <LocateIcon size={30} />
             </IconButton>
           ) : null}
-          <BottomSheet>
-            <SheetContent
-              destination={destination}
-              nav={nav}
-              positionStatus={location.position ? "ok" : location.status}
-              onRetry={retry}
-            />
+          <BottomSheet contentKey={sheetKey}>
+            <SheetContent destination={destination} nav={nav} positionStatus={positionStatus} onRetry={retry} />
           </BottomSheet>
         </div>
       </MapView>
@@ -80,14 +79,20 @@ function Navigation({ destination }: { destination: Place }) {
   );
 }
 
-function BottomSheet({ children }: { children: React.ReactNode }) {
+function isPositionProblem(status: PositionStatus): boolean {
+  return status === "denied" || status === "unsupported" || status === "unavailable";
+}
+
+function BottomSheet({ contentKey, children }: { contentKey: string; children: React.ReactNode }) {
   return (
     <section
       aria-label="道案内"
-      className="flex w-full flex-col gap-4 rounded-t-[32px] bg-card px-[22px] pt-6 shadow-float"
+      className="w-full animate-sheet-up rounded-t-[32px] bg-card px-[22px] pt-6 shadow-float"
       style={{ paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}
     >
-      {children}
+      <div key={contentKey} className="flex animate-fade-in flex-col gap-4">
+        {children}
+      </div>
     </section>
   );
 }
@@ -97,9 +102,13 @@ function TurnBanner({ nav }: { nav: NavigationView }) {
   const step = nav.nextStep;
   const approximate = nav.route?.approximate ?? false;
   const arriving = step?.turn === "arrive";
+  // 曲がる地点ごとに変わる(同じ「右へ」が続いても、次の曲がり角になれば弾む)
+  const turnKey = approximate
+    ? "approximate"
+    : `${step?.turn ?? "none"}@${step?.position?.lng ?? ""},${step?.position?.lat ?? ""}`;
   return (
     <div
-      className="absolute inset-x-4 top-0 z-10"
+      className="absolute inset-x-4 top-0 z-10 animate-fade-in"
       style={{ paddingTop: "max(16px, env(safe-area-inset-top))" }}
     >
       <div
@@ -107,7 +116,11 @@ function TurnBanner({ nav }: { nav: NavigationView }) {
         aria-live="polite"
         className="flex items-center gap-[18px] rounded-[28px] bg-primary px-[22px] py-[18px] text-white shadow-float"
       >
-        <div className="flex size-[72px] flex-none items-center justify-center rounded-[22px] bg-card text-primary">
+        {/* 曲がり方が変わったら、アイコンを小さく弾ませて気づけるようにする */}
+        <div
+          key={turnKey}
+          className="flex size-[72px] flex-none animate-pop items-center justify-center rounded-[22px] bg-card text-primary"
+        >
           <TurnIcon turn={approximate ? "straight" : step?.turn} />
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
@@ -151,7 +164,7 @@ function SheetContent({
   );
 
   // 位置がわからない
-  if (positionStatus === "denied" || positionStatus === "unsupported" || positionStatus === "unavailable") {
+  if (isPositionProblem(positionStatus)) {
     const text =
       positionStatus === "denied"
         ? "いまいる場所を使うことが許可されていません。ブラウザの設定で「位置情報」を許可してから、もう一度ためしてください。"
@@ -197,7 +210,7 @@ function SheetContent({
             {destination.name} まで歩いて案内中{nav.rerouting ? "(道を調べなおしています)" : ""}
           </p>
           {nav.route?.approximate ? (
-            <p className="m-0 rounded-2xl bg-honey-soft px-4 py-3 text-base leading-relaxed text-honey">
+            <p className="m-0 animate-rise-in rounded-2xl bg-honey-soft px-4 py-3 text-base leading-relaxed text-honey">
               いまは道順を調べられないため、目的地の方向を線で示しています。
             </p>
           ) : null}

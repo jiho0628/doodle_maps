@@ -8,7 +8,7 @@ export function SearchLauncher() {
     <MapOverlay position="top">
       <Link
         href="/search"
-        className="flex h-[68px] w-full items-center gap-3.5 rounded-full bg-card px-6 text-xl font-bold text-ink-soft no-underline shadow-soft active:scale-[0.98]"
+        className="flex h-[68px] w-full items-center gap-3.5 rounded-full bg-card px-6 text-xl font-bold text-ink-soft no-underline shadow-soft transition-transform duration-150 active:scale-[0.98]"
       >
         <span className="text-primary">
           <SearchIcon size={28} />
