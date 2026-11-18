@@ -86,17 +86,36 @@ describe("SearchScreen", () => {
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes(encodeURIComponent("近くのコンビニ")))).toBe(false);
   });
 
-  it("サーバーがだめならブラウザから Overpass に聞く", async () => {
-    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
-      String(url).startsWith("/api/")
-        ? new Response("", { status: 502 })
-        : Response.json({ elements: [{ type: "node", id: 3, lat: 35.68, lon: 139.76, tags: { name: "駅" } }] }),
-    );
+  it("サーバーがだめでも、ブラウザから直接 Overpass には聞かない(406 で断られるため)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockImplementation(async () => new Response("", { status: 502 }));
     vi.stubGlobal("fetch", fetchMock);
     render(<SearchScreen />);
     await userEvent.click(screen.getByRole("button", { name: "駅" }));
-    expect(await screen.findByRole("link", { name: "駅へ行く" })).toBeInTheDocument();
-    expect(String(fetchMock.mock.calls[1][0])).toContain("overpass");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("overpass"))).toBe(false);
+  });
+
+  it("名前での検索は近くの店を先に、遠い同名の地名は後ろに出す", async () => {
+    env.publicEnv.maptilerKey = "KEY";
+    // 京都の現在地(テストでは東京駅あたりになる)の近くにだけ店がある
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) => {
+        const u = new URL(url);
+        const near = u.searchParams.has("bbox");
+        const poi = u.searchParams.get("types") === "poi";
+        if (near) return Response.json({ features: poi ? [{ id: "p1", text: "六角ace", center: [139.768, 35.682] }] : [] });
+        return Response.json({
+          features: poi ? [] : [{ id: "f1", text: "六角", place_name: "六角, 姫路市, 兵庫県, 日本", center: [134.69, 34.82] }],
+        });
+      }),
+    );
+    render(<SearchScreen />);
+    await userEvent.type(screen.getByRole("searchbox"), "六角ace{Enter}");
+    const list = await screen.findByRole("list");
+    const names = within(list).getAllByRole("link").map((a) => a.getAttribute("aria-label"));
+    expect(names).toEqual(["六角aceへ行く", "六角へ行く"]);
   });
 
   it("OpenStreetMap が遅いときは MapTiler の近くの結果を先に出す", async () => {

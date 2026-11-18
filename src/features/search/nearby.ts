@@ -171,15 +171,25 @@ export async function fetchNearbyFromOverpass(
 }
 
 /**
- * ブラウザから近くをさがす。まずサーバー(/api/nearby、キャッシュあり)に聞き、
- * だめなときだけブラウザから直接 Overpass に聞く。
+ * ブラウザから近くをさがす(サーバーの /api/nearby 経由。キャッシュあり)。
+ * ブラウザから直接 Overpass には聞かない: ブラウザはアプリ名を名乗れず 406 で断られ、
+ * 予備サーバーも待たされるだけだったため。
  */
 const CLIENT_CACHE_MS = 5 * 60_000;
+/** /api/nearby が失敗したら、しばらくは聞かない(毎回7秒以上待って失敗するのを避ける) */
+const FAILURE_BACKOFF_MS = 2 * 60_000;
 const clientCache = new Map<string, { at: number; places: Place[] }>();
+let lastFailureAt = 0;
+
+/** 「もう一度ためす」のとき: 失敗の記録を消して、すぐにサーバーへ聞けるようにする */
+export function resetNearbyFailure() {
+  lastFailureAt = 0;
+}
 
 /** テスト用 */
 export function clearNearbyCache() {
   clientCache.clear();
+  lastFailureAt = 0;
 }
 
 export async function searchNearby(
@@ -191,9 +201,15 @@ export async function searchNearby(
   const key = `${category.id}:${center.lat.toFixed(3)},${center.lng.toFixed(3)}`;
   const hit = clientCache.get(key);
   if (hit && Date.now() - hit.at < CLIENT_CACHE_MS) return hit.places;
-  const places = await searchNearbyUncached(category, center, options);
-  clientCache.set(key, { at: Date.now(), places });
-  return places;
+  if (Date.now() - lastFailureAt < FAILURE_BACKOFF_MS) throw new Error("nearby: recently failed, skipped");
+  try {
+    const places = await searchNearbyUncached(category, center, options);
+    clientCache.set(key, { at: Date.now(), places });
+    return places;
+  } catch (error) {
+    if (!options.signal?.aborted) lastFailureAt = Date.now();
+    throw error;
+  }
 }
 
 async function searchNearbyUncached(
@@ -207,23 +223,17 @@ async function searchNearbyUncached(
     lat: center.lat.toFixed(4),
     lng: center.lng.toFixed(4),
   });
-  try {
-    // サーバー側は1回 7 秒まで(範囲を広げると2回)なので、それ以上は待たない
-    const timeout = AbortSignal.timeout(ENDPOINT_TIMEOUT_MS * 2 + 1_000);
-    const res = await fetchImpl(`/api/nearby?${params.toString()}`, {
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { places?: Place[] };
-      if (Array.isArray(json.places)) return json.places;
-    } else {
-      // 502 のときはサーバーが理由(detail)を返す。DevTools のコンソールで見られるようにする
-      const body = (await res.json().catch(() => null)) as { detail?: string } | null;
-      console.warn("[nearby] /api/nearby failed", res.status, body?.detail ?? "");
-    }
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    console.warn("[nearby] /api/nearby failed", error instanceof Error ? error.message : error);
+  // サーバー側は1回 7 秒まで(範囲を広げると2回)なので、それ以上は待たない
+  const timeout = AbortSignal.timeout(ENDPOINT_TIMEOUT_MS * 2 + 1_000);
+  const res = await fetchImpl(`/api/nearby?${params.toString()}`, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
+  if (res.ok) {
+    const json = (await res.json()) as { places?: Place[] };
+    if (Array.isArray(json.places)) return json.places;
   }
-  return fetchNearbyFromOverpass(category, center, { signal, fetchImpl });
+  // 502 のときはサーバーが理由(detail)を返す。DevTools のコンソールで見られるようにする
+  const body = (await res.json().catch(() => null)) as { detail?: string } | null;
+  console.warn("[nearby] /api/nearby failed", res.status, body?.detail ?? "");
+  throw new Error(`nearby ${res.status}`);
 }

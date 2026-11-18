@@ -100,20 +100,73 @@ export async function geocode(
   return parseGeocodeResponse(await res.json());
 }
 
+/** 中心から半径 r(m)の四角(MapTiler の bbox: 西,南,東,北) */
+export function bboxAround(center: LngLat, radiusM: number): [number, number, number, number] {
+  const dLat = radiusM / 111_320;
+  const dLng = radiusM / (111_320 * Math.cos((center.lat * Math.PI) / 180));
+  return [center.lng - dLng, center.lat - dLat, center.lng + dLng, center.lat + dLat];
+}
+
+/** 名前での検索で、まずさがす範囲(現在地から) */
+const NEAR_RADIUS_M = 5_000;
+/** これより遠いものは、近いものより下に回す */
+const FAR_M = 50_000;
+
+function distanceKm(a: LngLat, b: LngLat): number {
+  const rad = Math.PI / 180;
+  const x = (b.lng - a.lng) * rad * Math.cos(((a.lat + b.lat) / 2) * rad);
+  const y = (b.lat - a.lat) * rad;
+  return Math.sqrt(x * x + y * y) * 6371;
+}
+
+/** 地名・住所(初期設定)と店・施設(poi)を同時にさがす */
+async function geocodeBoth(
+  query: string,
+  options: Parameters<typeof geocode>[1],
+): Promise<Place[]> {
+  const settled = await Promise.allSettled([geocode(query, options), geocode(query, { ...options, types: "poi" })]);
+  const failed = settled.find((r) => r.status === "rejected");
+  if (failed && settled.every((r) => r.status === "rejected")) throw failed.reason;
+  // 店・施設を先に(「六角ace」のような店名で、似た地名が上に来ないように)
+  return [settled[1], settled[0]].flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+}
+
 /**
- * 文字での検索。地名・住所(初期設定)と、店・施設(poi)を同時にさがしてまとめる。
- * MapTiler は初期設定では店・施設を検索しないため、「スターバックス」などが出なかった。
+ * 文字での検索。地名・住所と店・施設(poi)を同時にさがす(MapTiler は初期設定では店を検索しない)。
+ * 現在地がわかるときは、まず近く(5km)だけでさがして近い順に並べ、少なければ全国に広げる。
+ * 全国の結果は、50km より遠いものを近いものより下にする(京都で「六角」と入れて姫路が先頭に来ないように)。
  */
 export async function searchPlacesByText(
   query: string,
   options: { key: string; proximity?: LngLat | null; signal?: AbortSignal; fetchImpl?: typeof fetch },
 ): Promise<Place[]> {
-  const settled = await Promise.allSettled([geocode(query, options), geocode(query, { ...options, types: "poi" })]);
-  const failed = settled.find((r) => r.status === "rejected");
-  if (failed && settled.every((r) => r.status === "rejected")) throw failed.reason;
-  const seen = new Set<string>();
-  return settled
-    .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
-    .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
-    .slice(0, 10);
+  const { proximity } = options;
+  const results: Place[] = [];
+  const add = (places: Place[]) => {
+    for (const p of places) if (!results.some((r) => r.id === p.id)) results.push(p);
+  };
+
+  if (proximity) {
+    const near = await geocodeBoth(query, { ...options, bbox: bboxAround(proximity, NEAR_RADIUS_M) }).catch(
+      (error: unknown) => {
+        if (options.signal?.aborted) throw error;
+        return [] as Place[];
+      },
+    );
+    add(near.sort((a, b) => distanceKm(proximity, a.position) - distanceKm(proximity, b.position)));
+    if (results.length >= 3) return results.slice(0, 10);
+  }
+
+  const wide = await geocodeBoth(query, options).catch((error: unknown) => {
+    if (results.length > 0 && !options.signal?.aborted) return [] as Place[];
+    throw error;
+  });
+  if (proximity) {
+    // 並び(関連の強さ)は保ったまま、遠すぎるものだけ後ろへ
+    const isFar = (p: Place) => distanceKm(proximity, p.position) > FAR_M / 1000;
+    add([...wide.filter((p) => !isFar(p)), ...wide.filter(isFar)]);
+  } else {
+    add(wide);
+  }
+  return results.slice(0, 10);
 }
