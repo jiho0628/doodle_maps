@@ -59,7 +59,7 @@ export function UserMarkerBody({ size = MARKER_SIZE }: { size?: number }) {
   const avatarSize = Math.round((AVATAR_SIZE / MARKER_SIZE) * size);
 
   return (
-    <div className="pointer-events-none relative" style={{ width: size, height: size }}>
+    <div className="pointer-events-none relative animate-fade-in" style={{ width: size, height: size }}>
       <svg
         width={size}
         height={size}

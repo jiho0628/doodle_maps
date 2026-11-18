@@ -101,12 +101,17 @@ export function AvatarScreen() {
         {busy ? (
           <p className="m-0 text-lg font-bold text-ink-soft">写真を読みこんでいます…</p>
         ) : (
-          <AvatarFigure
-            key={selected.kind === "photo" ? "photo" : selected.animal}
-            choice={selected}
-            size={selected.kind === "photo" ? 118 : 110}
-            title={`えらんだアバター：${avatarLabel(selected)}`}
-          />
+          // えらびなおしたときだけ、小さく弾ませる(開いた直後は動かさない)
+          <span
+            key={selected.kind === "photo" ? selected.dataUrl.slice(-32) : selected.animal}
+            className={cn("inline-flex", draft !== null && "animate-pop")}
+          >
+            <AvatarFigure
+              choice={selected}
+              size={selected.kind === "photo" ? 118 : 110}
+              title={`えらんだアバター：${avatarLabel(selected)}`}
+            />
+          </span>
         )}
       </div>
 
@@ -156,7 +161,7 @@ export function AvatarScreen() {
       ) : null}
 
       {error ? (
-        <div role="alert" className="flex items-start gap-2.5 rounded-[20px] bg-primary-soft px-4 py-3.5 text-primary-strong">
+        <div role="alert" className="flex animate-rise-in items-start gap-2.5 rounded-[20px] bg-primary-soft px-4 py-3.5 text-primary-strong">
           <WarningIcon size={24} className="mt-0.5 flex-none" />
           <p className="m-0 text-base font-bold leading-relaxed">{error}</p>
         </div>
@@ -198,7 +203,7 @@ function Tile({
       className={cn(
         "flex h-[112px] min-w-0 flex-col items-center justify-center gap-1 rounded-3xl px-1 text-center",
         "text-[18px] font-bold leading-tight text-ink select-none",
-        "transition-[transform,border-color] duration-150 active:scale-[0.97] disabled:opacity-50",
+        "transition-[transform,border-color,background-color,box-shadow] duration-150 active:scale-[0.97] disabled:opacity-50",
         pressed
           ? "border-[3px] border-primary bg-card shadow-card"
           : dashed
