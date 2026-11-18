@@ -153,6 +153,20 @@ const [favorites, setFavorites] = useStoredState(STORAGE_KEYS.favorites, EMPTY, 
 
 ボタンは `Button`(`primary` `soft` `white` `dashed`、サイズ `md`=60px / `lg`=64px)、丸いアイコンボタンは `IconButton`(68px、`label` 必須)。
 
+### アニメーション
+
+控えめに使います。短く(150〜300ms)、操作を待たせず、出てくるときだけ動かします(消えるときはすぐ消す)。
+`globals.css` に用意したクラスを使ってください。端末の「視差効果を減らす」(`prefers-reduced-motion`)が有効なときは、すべてまとめて止まります。地図の移動(`flyTo` など)は MapLibre が同じ設定を見て自動で止めます。
+
+| クラス | 動き | 使いどころ |
+| --- | --- | --- |
+| `animate-fade-in` | ふわっと出る(200ms) | 画面・タブの切りかえ(`template.tsx` で適用ずみ)、読みこみ中の表示 |
+| `animate-rise-in` | 少し下から出る(220ms) | お知らせ、地図の上に出るカード、エラー表示 |
+| `animate-sheet-up` | 下からせり出す(260ms) | シート(`Sheet`) |
+| `animate-pop` | 小さく弾む(260ms) | ハートを入れたときなど、押した結果の合図 |
+
+ボタン(`Button` / `IconButton` / 下タブ)は押すと少し縮みます(部品側で対応ずみ)。同じ要素で動きを出し直したいときは `key` を変えます。
+
 ## デプロイ
 
 Vercel にこのリポジトリをインポートし、環境変数(上の表)を設定するだけで動きます。

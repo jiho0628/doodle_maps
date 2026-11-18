@@ -8,7 +8,7 @@ export function MapStatusOverlay({ status, onRetry }: { status: MapStatus; onRet
   if (status === "loading") {
     return (
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status">
-        <span className="rounded-full bg-card/90 px-6 py-3 text-lg font-bold text-ink-soft shadow-card">
+        <span className="animate-fade-in rounded-full bg-card/90 px-6 py-3 text-lg font-bold text-ink-soft shadow-card">
           地図を読みこみ中…
         </span>
       </div>
@@ -18,7 +18,7 @@ export function MapStatusOverlay({ status, onRetry }: { status: MapStatus; onRet
   const unsupported = status === "unsupported";
   return (
     <div className="absolute inset-0 flex items-center justify-center px-5" role="alert">
-      <Card elevated className="flex w-full max-w-sm flex-col gap-4 p-6">
+      <Card elevated className="flex w-full max-w-sm animate-rise-in flex-col gap-4 p-6">
         <div className="flex items-center gap-3">
           <span className="text-primary">
             <WarningIcon size={32} />

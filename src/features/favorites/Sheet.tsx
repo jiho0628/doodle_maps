@@ -43,13 +43,13 @@ export function Sheet({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <div aria-hidden="true" className="absolute inset-0 bg-ink/45" onClick={onClose} data-testid="sheet-backdrop" />
+      <div aria-hidden="true" className="absolute inset-0 animate-fade-in bg-ink/45" onClick={onClose} data-testid="sheet-backdrop" />
       <div
         ref={panelRef}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex max-h-[92dvh] w-full max-w-lg flex-col gap-5 overflow-y-auto rounded-t-[32px] bg-surface px-5 pt-6 shadow-float"
+        className="relative flex max-h-[92dvh] w-full max-w-lg animate-sheet-up flex-col gap-5 overflow-y-auto rounded-t-[32px] bg-surface px-5 pt-6 shadow-float"
         style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
       >
         <h2 id={titleId} className="m-0 text-2xl font-black leading-snug">
