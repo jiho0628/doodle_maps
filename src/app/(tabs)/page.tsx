@@ -1,3 +1,4 @@
+import { FavoriteMarkers } from "@/features/favorites";
 import { LocationLayer } from "@/features/location";
 import { MapView } from "@/features/map";
 import { SearchLauncher } from "@/features/search";
@@ -11,6 +12,7 @@ export default function MapHomePage() {
   return (
     <MapView>
       <SearchLauncher />
+      <FavoriteMarkers />
       <LocationLayer />
     </MapView>
   );

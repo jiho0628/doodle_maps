@@ -19,6 +19,9 @@ function isBoolean(v: unknown): v is boolean {
   return typeof v === "boolean";
 }
 
+/** 現在地を追うための移動に付ける印(ほかの移動と見分けるため) */
+const FOLLOW_EVENT = { byUserFollow: true } as const;
+
 const noopSubscribe = () => () => {};
 
 function usePlatform(): DevicePlatform {
@@ -36,8 +39,8 @@ function useFlyToUser() {
     (position: LngLat, animate = true) => {
       if (!map) return;
       const options = { center: toLngLatArray(position), zoom: Math.max(map.getZoom(), FOCUS_ZOOM) };
-      if (animate) map.flyTo({ ...options, duration: 900 });
-      else map.jumpTo(options);
+      if (animate) map.flyTo({ ...options, duration: 900 }, FOLLOW_EVENT);
+      else map.jumpTo(options, FOLLOW_EVENT);
     },
     [map],
   );
@@ -61,18 +64,18 @@ export function LocationLayer() {
   const [compassEnabled, setCompassEnabled] = useStoredState(STORAGE_KEYS.compassEnabled, false, isBoolean);
   const [helpDismissed, setHelpDismissed] = useState(false);
   // 「ついていく」モード: 開いた直後と「現在地にもどる」を押したあとは、歩くと地図がついてくる。
-  // 指で地図を動かしたら、勝手に戻らないようにやめる。
+  // 指で地図を動かしたり、お気に入り・検索などほかの機能が地図を動かしたら、勝手に戻らないようにやめる。
   const following = useRef(true);
   const centeredOnce = useRef(false);
 
   useEffect(() => {
     if (!map) return;
-    const stopFollowing = () => {
-      following.current = false;
+    const onMoveStart = (event: object) => {
+      if (!(event as { byUserFollow?: boolean }).byUserFollow) following.current = false;
     };
-    map.on("dragstart", stopFollowing);
+    map.on("movestart", onMoveStart);
     return () => {
-      map.off("dragstart", stopFollowing);
+      map.off("movestart", onMoveStart);
     };
   }, [map]);
 
@@ -84,7 +87,7 @@ export function LocationLayer() {
       flyToUser(location.position, false);
       return;
     }
-    map.easeTo({ center: toLngLatArray(location.position), duration: 600 });
+    map.easeTo({ center: toLngLatArray(location.position), duration: 600 }, FOLLOW_EVENT);
   }, [map, location.position, flyToUser]);
 
   // iPhone: 以前「はい、出す」と答えた人は、次に画面に触れたときに黙って許可を取り直す
@@ -152,21 +155,53 @@ export function LocationLayer() {
   return (
     <>
       <UserLocationMarker />
-      {card ? (
-        // カードを出す間は、右下のボタンをカードの上に積んで重ならないようにする
-        <MapOverlay position="bottom">
-          {/* 小さい画面でもはみ出さないよう、カードの間は現在地ボタンだけにする */}
-          <div className="flex flex-col items-end gap-3 self-end pr-1">{locateButton}</div>
-          {card}
-        </MapOverlay>
-      ) : (
-        <MapOverlay position="bottom-right">
-          <AvatarButton />
-          {locateButton}
-        </MapOverlay>
-      )}
+      <MapOverlay position="bottom-right">
+        {/* 小さい画面でもはみ出さないよう、自分のカードを出す間は現在地ボタンだけにする */}
+        {card ? null : <AvatarButton />}
+        {locateButton}
+        <BottomOverlaySpacer />
+      </MapOverlay>
+      {card ? <MapOverlay position="bottom">{card}</MapOverlay> : null}
     </>
   );
+}
+
+/**
+ * 右下のボタンが、下部のカード(この機能の案内、お気に入りのカードなど、どの機能のものでも)に
+ * 重ならないよう、下部に出ているものの高さぶんだけ持ち上げる。
+ */
+function BottomOverlaySpacer() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const root = ref.current?.closest("[data-map-overlay]")?.parentElement;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      let h = 0;
+      root.querySelectorAll<HTMLElement>(':scope > [data-map-overlay="bottom"]').forEach((el) => {
+        // MapOverlay の下の余白(pb-4)はボタン側にもあるので差し引く
+        const pad = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+        h = Math.max(h, el.offsetHeight > pad ? el.offsetHeight - pad : 0);
+      });
+      setHeight(h);
+    };
+    const resize = new ResizeObserver(measure);
+    const observeAll = () => {
+      resize.disconnect();
+      root.querySelectorAll<HTMLElement>(':scope > [data-map-overlay="bottom"]').forEach((el) => resize.observe(el));
+      measure();
+    };
+    const mutation = new MutationObserver(observeAll);
+    mutation.observe(root, { childList: true });
+    observeAll();
+    return () => {
+      mutation.disconnect();
+      resize.disconnect();
+    };
+  }, []);
+
+  return <div ref={ref} aria-hidden="true" className="pointer-events-none! -mt-3" style={{ height }} />;
 }
 
 /** 右下の「アバターをえらぶ」ボタン。今のアバターの顔が出る。 */
