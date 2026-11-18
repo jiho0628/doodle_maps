@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocationState } from "./geolocationStore";
 import type { HeadingState } from "./headingStore";
 
@@ -71,5 +71,50 @@ describe("LocationLayer", () => {
     state.heading = { status: "active", heading: 0 };
     render(<LocationLayer />);
     expect(screen.getByRole("button", { name: /アバターをえらぶ/ })).toBeInTheDocument();
+  });
+
+  describe("右下のボタンが上の検索バーに届くとき", () => {
+    const renderWithTopBar = (buttonTop: number) => {
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          observe() {}
+          disconnect() {}
+        },
+      );
+      const rect = (top: number, bottom: number) => ({ top, bottom }) as DOMRect;
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        if (this.getAttribute("data-map-overlay") === "top") return rect(0, 88);
+        return rect(buttonTop, buttonTop + 68);
+      });
+      return render(
+        <div>
+          <div data-map-overlay="top" />
+          <LocationLayer />
+        </div>,
+      );
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it("重なるならボタンを隠す", () => {
+      state.location = { status: "denied", position: null, accuracyM: null, updatedAt: null };
+      renderWithTopBar(40);
+      // invisible = visibility:hidden(見えず、押せず、読み上げもされない)
+      expect(screen.getByRole("button", { name: "現在地にもどる", hidden: true }).closest("[data-map-overlay]")).toHaveClass(
+        "invisible",
+      );
+    });
+
+    it("重ならないならボタンを出したまま", () => {
+      state.location = { status: "denied", position: null, accuracyM: null, updatedAt: null };
+      renderWithTopBar(300);
+      expect(screen.getByRole("button", { name: "現在地にもどる" }).closest("[data-map-overlay]")).not.toHaveClass(
+        "invisible",
+      );
+    });
   });
 });
