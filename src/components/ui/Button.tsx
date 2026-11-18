@@ -16,7 +16,7 @@ export type ButtonSize = "md" | "lg";
 
 const base =
   "inline-flex items-center justify-center gap-2 rounded-full font-bold select-none " +
-  "transition-[transform,background-color] duration-150 active:scale-[0.97] " +
+  "transition-[transform,background-color,opacity] duration-150 active:scale-[0.97] " +
   "disabled:opacity-50 disabled:pointer-events-none";
 
 const variants: Record<ButtonVariant, string> = {

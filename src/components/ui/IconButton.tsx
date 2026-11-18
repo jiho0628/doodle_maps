@@ -25,7 +25,7 @@ export function IconButton({
       aria-label={label}
       className={cn(
         "inline-flex flex-none items-center justify-center rounded-full bg-card text-primary shadow-soft",
-        "transition-transform duration-150 active:scale-95",
+        "transition-[transform,background-color,color] duration-150 active:scale-95",
         size === 68 ? "size-[68px]" : "size-[60px]",
         className,
       )}

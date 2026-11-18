@@ -118,4 +118,16 @@ describe("FavoriteToggleButton", () => {
     await user.click(btn);
     expect(window.localStorage.getItem(STORAGE_PREFIX + "favorites")).toBe("[]");
   });
+
+  it("入れたときだけハートが弾む(最初から入っているときは動かない)", async () => {
+    const place = { id: "p2", name: "公園", position: { lng: 139.75, lat: 35.66 } };
+    addFavorite(place);
+    const user = userEvent.setup();
+    render(<FavoriteToggleButton place={place} />);
+    const btn = screen.getByRole("button", { name: "公園をお気に入りから外す" });
+    expect(btn.querySelector(".animate-pop")).toBeNull();
+    await user.click(btn);
+    await user.click(screen.getByRole("button", { name: "公園をお気に入りに入れる" }));
+    expect(screen.getByRole("button", { name: "公園をお気に入りから外す" }).querySelector(".animate-pop")).not.toBeNull();
+  });
 });

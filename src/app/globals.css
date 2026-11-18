@@ -71,3 +71,56 @@ body {
   outline: 3px solid var(--color-primary);
   outline-offset: 3px;
 }
+
+/*
+ * アニメーション(控えめに)
+ * - 短く(150〜300ms)、操作を待たせない。出てくるときだけ動かし、消えるときはすぐ消す。
+ * - クラスとして使う: animate-fade-in / animate-rise-in / animate-sheet-up / animate-pop
+ * - 端末で「視差効果を減らす」が有効なら、下の media クエリでまとめて止まります。
+ */
+@theme {
+  --ease-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* 画面・タブの切り替え(ふわっと出る) */
+  --animate-fade-in: fade-in 200ms ease-out;
+  /* お知らせ・カード(少し下から出る) */
+  --animate-rise-in: rise-in 220ms var(--ease-soft);
+  /* 下からせり出すシート */
+  --animate-sheet-up: sheet-up 260ms var(--ease-soft);
+  /* ハートなどを押したときの小さな弾み */
+  --animate-pop: pop 260ms var(--ease-soft);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+  }
+  @keyframes pop {
+    40% {
+      transform: scale(1.18);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
