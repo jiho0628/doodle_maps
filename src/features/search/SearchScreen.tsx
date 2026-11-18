@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BackIcon, ButtonLink, Card, cn, SearchIcon } from "@/components/ui";
+import { FavoriteToggleButton } from "@/features/favorites";
 import { navigateHref, walkLabel } from "@/features/route";
 import { publicEnv } from "@/lib/config/env";
 import type { Place } from "@/types";
@@ -261,12 +262,13 @@ function ResultBody({ result, origin }: { result: ResultState; origin: Origin | 
 function ResultCard({ place, origin }: { place: Place; origin: Origin | null }) {
   const near = origin?.source === "gps" ? walkLabel(origin.position, place.position) : null;
   return (
-    <Card className="flex items-center gap-3 py-4 pr-4 pl-5">
+    <Card className="flex items-center gap-2.5 py-4 pr-3.5 pl-5">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="m-0 text-[19px] leading-snug font-bold break-words">{place.name}</p>
         {near ? <p className="m-0 text-[15px] text-ink-soft">{near}</p> : null}
         {place.address ? <p className="m-0 truncate text-[15px] text-ink-soft">{place.address}</p> : null}
       </div>
+      <FavoriteToggleButton place={place} className="shadow-none ring-2 ring-line" />
       <ButtonLink href={navigateHref(place)} aria-label={`${place.name}へ行く`} className="flex-none px-6">
         行く
       </ButtonLink>

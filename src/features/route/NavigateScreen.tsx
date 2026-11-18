@@ -110,14 +110,10 @@ function TurnBanner({ nav }: { nav: NavigationView }) {
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
           {nav.distanceToNextM !== null ? (
-            <div className="text-[30px] font-black leading-tight">
-              {approximate ? "目的地まで " : ""}
-              {formatDistance(nav.distanceToNextM)}
-              {approximate ? "" : " 先"}
-            </div>
+            <div className="text-[30px] font-black leading-tight">{formatDistance(nav.distanceToNextM)} 先</div>
           ) : null}
           <div className="text-[22px] font-bold leading-snug">
-            {approximate ? "地図の線の方へ進む" : arriving ? "目的地に到着" : turnLabel(step?.turn)}
+            {approximate ? "目的地の方へ進む" : arriving ? "目的地に到着" : turnLabel(step?.turn)}
           </div>
         </div>
       </div>

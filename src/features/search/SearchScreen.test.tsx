@@ -67,3 +67,18 @@ describe("SearchScreen", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("うまくさがせませんでした");
   });
 });
+
+describe("SearchScreen のお気に入り", () => {
+  it("検索結果のハートでお気に入りに入れられる", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({ elements: [{ type: "node", id: 1, lat: 35.68, lon: 139.76, tags: { name: "駅前カフェ" } }] }),
+      ),
+    );
+    render(<SearchScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "カフェ" }));
+    await userEvent.click(await screen.findByRole("button", { name: "駅前カフェをお気に入りに入れる" }));
+    expect(screen.getByRole("button", { name: "駅前カフェをお気に入りから外す" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
