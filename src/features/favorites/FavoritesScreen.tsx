@@ -53,8 +53,8 @@ export function FavoritesScreen() {
             role={notice.tone === "error" ? "alert" : "status"}
             className={
               notice.tone === "error"
-                ? "m-0 rounded-2xl bg-primary-soft px-4 py-3 text-lg font-bold text-primary-strong"
-                : "m-0 rounded-2xl bg-leaf-soft px-4 py-3 text-lg font-bold text-leaf"
+                ? "m-0 animate-rise-in rounded-2xl bg-primary-soft px-4 py-3 text-lg font-bold text-primary-strong"
+                : "m-0 animate-rise-in rounded-2xl bg-leaf-soft px-4 py-3 text-lg font-bold text-leaf"
             }
           >
             {notice.text}
@@ -86,7 +86,7 @@ export function FavoritesScreen() {
         </Button>
 
         {locateState.status === "error" ? (
-          <Card role="alert" className="flex items-start gap-3 text-lg leading-relaxed">
+          <Card role="alert" className="flex animate-rise-in items-start gap-3 text-lg leading-relaxed">
             <span className="mt-0.5 flex-none text-primary">
               <WarningIcon size={28} />
             </span>

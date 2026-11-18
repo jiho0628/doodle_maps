@@ -38,6 +38,7 @@ export function BottomTabBar() {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex h-[68px] items-center justify-center gap-2 rounded-[22px] text-lg font-bold no-underline",
+                  "transition-[transform,background-color,color] duration-200 active:scale-[0.97]",
                   active ? "bg-primary-soft text-primary-strong" : "text-ink-soft",
                 )}
               >

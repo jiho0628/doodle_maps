@@ -26,6 +26,8 @@ export function FavoriteToggleButton({
   const existing = findByPosition(place.position);
   const saved = existing !== undefined;
   const [failed, setFailed] = useState(false);
+  // 入れたときだけハートを小さく弾ませる(最初から入っているときは動かさない)
+  const [popCount, setPopCount] = useState(0);
 
   const toggle = () => {
     if (existing) {
@@ -35,7 +37,10 @@ export function FavoriteToggleButton({
     } else {
       const result = add(place);
       setFailed(!result.ok);
-      if (result.ok) onChange?.(true);
+      if (result.ok) {
+        setPopCount((n) => n + 1);
+        onChange?.(true);
+      }
     }
   };
 
@@ -48,7 +53,9 @@ export function FavoriteToggleButton({
       onClick={toggle}
       className={cn(saved ? "bg-primary-soft text-primary-strong" : "text-primary", className)}
     >
-      <HeartIcon size={size === 68 ? 32 : 28} filled={saved} />
+      <span key={popCount} className={cn("inline-flex", saved && popCount > 0 && "animate-pop")}>
+        <HeartIcon size={size === 68 ? 32 : 28} filled={saved} />
+      </span>
     </IconButton>
   );
 }

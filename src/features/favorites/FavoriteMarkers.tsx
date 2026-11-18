@@ -100,7 +100,7 @@ export function FavoriteMarkers() {
       })}
       {selected ? (
         <MapOverlay position="bottom">
-          <Card elevated className="flex flex-col gap-4 p-5" role="region" aria-label="えらんだお気に入り">
+          <Card key={selected.id} elevated className="flex animate-rise-in flex-col gap-4 p-5" role="region" aria-label="えらんだお気に入り">
             <div className="flex items-center gap-3.5">
               <FavoriteBadge icon={selected.icon} />
               <div className="flex min-w-0 flex-col gap-0.5">
