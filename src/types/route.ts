@@ -3,9 +3,27 @@ import type { LngLat, Place } from "./geo";
 /** 移動手段。値は OpenRouteService のプロファイル名に合わせています。 */
 export type TravelMode = "foot-walking" | "cycling-regular" | "driving-car";
 
+/** 曲がり方(矢印アイコンの出し分けに使う) */
+export type RouteTurn =
+  | "depart"
+  | "straight"
+  | "left"
+  | "right"
+  | "slight-left"
+  | "slight-right"
+  | "sharp-left"
+  | "sharp-right"
+  | "keep-left"
+  | "keep-right"
+  | "u-turn"
+  | "roundabout"
+  | "arrive";
+
 export type RouteStep = {
   /** 画面にそのまま出す案内文(「右へ曲がる」など) */
   instruction: string;
+  /** 曲がり方(わからないときは省略) */
+  turn?: RouteTurn;
   distanceM: number;
   durationS: number;
   /** 曲がる地点 */
