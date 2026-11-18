@@ -7,15 +7,21 @@ import type { LngLat, Place, PlaceCategory } from "@/types";
  */
 export const MAPTILER_GEOCODING_URL = "https://api.maptiler.com/geocoding";
 
-export function buildGeocodeUrl(query: string, key: string, proximity?: LngLat | null): string {
+export function buildGeocodeUrl(
+  query: string,
+  key: string,
+  proximity?: LngLat | null,
+  extra: { bbox?: [number, number, number, number]; limit?: number } = {},
+): string {
   const params = new URLSearchParams({
     key,
     language: "ja",
-    limit: "10",
+    limit: String(extra.limit ?? 10),
     // 日本国内に絞る(海外の同名の場所が混ざらないように)
     country: "jp",
   });
   if (proximity) params.set("proximity", `${proximity.lng.toFixed(5)},${proximity.lat.toFixed(5)}`);
+  if (extra.bbox) params.set("bbox", extra.bbox.map((n) => n.toFixed(5)).join(","));
   return `${MAPTILER_GEOCODING_URL}/${encodeURIComponent(query)}.json?${params.toString()}`;
 }
 
@@ -76,10 +82,17 @@ export function parseGeocodeResponse(json: unknown): Place[] {
 
 export async function geocode(
   query: string,
-  options: { key: string; proximity?: LngLat | null; signal?: AbortSignal; fetchImpl?: typeof fetch },
+  options: {
+    key: string;
+    proximity?: LngLat | null;
+    bbox?: [number, number, number, number];
+    limit?: number;
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+  },
 ): Promise<Place[]> {
-  const { key, proximity, signal, fetchImpl = fetch } = options;
-  const res = await fetchImpl(buildGeocodeUrl(query, key, proximity), { signal });
+  const { key, proximity, bbox, limit, signal, fetchImpl = fetch } = options;
+  const res = await fetchImpl(buildGeocodeUrl(query, key, proximity, { bbox, limit }), { signal });
   if (!res.ok) throw new Error(`geocoding ${res.status}`);
   return parseGeocodeResponse(await res.json());
 }

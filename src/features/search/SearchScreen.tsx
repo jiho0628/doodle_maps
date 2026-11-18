@@ -6,10 +6,11 @@ import { BackIcon, ButtonLink, Card, cn, SearchIcon } from "@/components/ui";
 import { FavoriteToggleButton } from "@/features/favorites";
 import { navigateHref, walkLabel } from "@/features/route";
 import { publicEnv } from "@/lib/config/env";
-import type { Place } from "@/types";
+import type { LngLat, Place } from "@/types";
 import { CATEGORY_TONE, CategoryIcon } from "./CategoryIcon";
 import { matchCategory, SEARCH_CATEGORIES, type SearchCategory } from "./categories";
 import { geocode } from "./geocode";
+import { searchNearbyWithMapTiler } from "./mapTilerNearby";
 import { searchNearby } from "./nearby";
 import { useOrigin, type Origin } from "./useOrigin";
 
@@ -26,23 +27,43 @@ type ResultState =
   /** 文字検索のキー(NEXT_PUBLIC_MAPTILER_KEY)が未設定 */
   | { status: "no_key" };
 
-async function runSearch(mode: SearchMode, origin: Origin, signal: AbortSignal): Promise<ResultState> {
+async function runSearch(mode: SearchMode, origin: Origin | null, signal: AbortSignal): Promise<ResultState> {
   const key = publicEnv.maptilerKey;
   if (mode.kind === "idle") return { status: "idle" };
 
   if (mode.kind === "category") {
-    try {
-      return { status: "done", places: await searchNearby(mode.category, origin.position, { signal }) };
-    } catch (error) {
-      if (signal.aborted) throw error;
-      // OpenStreetMap 側が混んでいるときは、文字検索で代わりにさがす
-      if (!key) return { status: "error" };
-      return { status: "done", places: await geocode(mode.category.label, { key, proximity: origin.position, signal }) };
-    }
+    if (!origin) return { status: "loading" };
+    return { status: "done", places: await nearbyFast(mode.category, origin.position, key, signal) };
   }
 
   if (!key) return { status: "no_key" };
-  return { status: "done", places: await geocode(mode.query, { key, proximity: origin.position, signal }) };
+  return { status: "done", places: await geocode(mode.query, { key, proximity: origin?.position, signal }) };
+}
+
+/** OpenStreetMap の答えをこの時間だけ待ち、遅ければ MapTiler の結果を先に出す */
+const OSM_GRACE_MS = 3_000;
+
+/**
+ * 近くの店をさがす。OpenStreetMap(近い順で正確)と MapTiler(チェーン名で検索、速い)を同時に始め、
+ * OpenStreetMap が3秒以内に答えればそれを、遅ければ MapTiler の結果を使う。
+ */
+async function nearbyFast(category: SearchCategory, center: LngLat, key: string, signal: AbortSignal): Promise<Place[]> {
+  const osm = searchNearby(category, center, { signal });
+  osm.catch(() => undefined);
+  const mapTiler = key ? searchNearbyWithMapTiler(category, center, { key, signal }) : null;
+  mapTiler?.catch(() => undefined);
+
+  const quick = await Promise.race([
+    osm.then((places) => places, () => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), OSM_GRACE_MS)),
+  ]);
+  if (quick && quick.length > 0) return quick;
+
+  if (mapTiler) {
+    const fallback = await mapTiler.catch(() => []);
+    if (fallback.length > 0) return fallback;
+  }
+  return osm;
 }
 
 /** 検索画面: 文字でさがす+「よく使う」ボタン。結果の「行く」1回で道案内がはじまる */
@@ -54,13 +75,21 @@ export function SearchScreen() {
   const composing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // 名前での検索は、あとから現在地がわかってもやり直さない(結果が入れ替わらないように)
+  const originRef = useRef(origin);
+  useEffect(() => {
+    originRef.current = origin;
+  }, [origin]);
+  const categoryOrigin = mode.kind === "category" ? origin : null;
+
   // 検索する(近くをさがすときは、基準の場所が決まるまで待つ)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 検索を始めたことを画面に出す
     setResult(mode.kind === "idle" ? { status: "idle" } : { status: "loading" });
-    if (mode.kind === "idle" || !origin) return;
+    // 名前での検索は現在地を待たずにすぐ始める(近くをさがすときだけ待つ)
+    if (mode.kind === "idle" || (mode.kind === "category" && !categoryOrigin)) return;
     const controller = new AbortController();
-    runSearch(mode, origin, controller.signal)
+    runSearch(mode, mode.kind === "category" ? categoryOrigin : originRef.current, controller.signal)
       .then((next) => {
         if (!controller.signal.aborted) setResult(next);
       })
@@ -68,7 +97,7 @@ export function SearchScreen() {
         if (!controller.signal.aborted) setResult({ status: "error" });
       });
     return () => controller.abort();
-  }, [mode, origin]);
+  }, [mode, categoryOrigin]);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 

@@ -16,14 +16,15 @@ export const OVERPASS_ENDPOINTS = [
 ];
 
 /** 1台あたりの待ち時間 */
-const ENDPOINT_TIMEOUT_MS = 9_000;
+const ENDPOINT_TIMEOUT_MS = 3_500;
 
 /** 一度に出す件数 */
 const MAX_RESULTS = 10;
 
 export function buildOverpassQuery(category: SearchCategory, center: LngLat, radiusM = category.radiusM): string {
   const around = `(around:${Math.round(radiusM)},${center.lat.toFixed(6)},${center.lng.toFixed(6)})`;
-  return `[out:json][timeout:15];nwr${category.overpassFilter}${around};out center 60;`;
+  // relation(複合施設など)は重いうえに店はほぼ node/way なので除く
+  return `[out:json][timeout:8];nw${category.overpassFilter}${around};out center 40;`;
 }
 
 type OverpassElement = {
@@ -76,9 +77,8 @@ async function queryOverpass(
   endpoint: string,
   query: string,
   fetchImpl: typeof fetch,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ): Promise<unknown> {
-  const timeout = AbortSignal.timeout(ENDPOINT_TIMEOUT_MS);
   const res = await fetchImpl(endpoint, {
     method: "POST",
     headers: {
@@ -88,7 +88,7 @@ async function queryOverpass(
       ...(typeof window === "undefined" ? { "User-Agent": "doodle_maps/1.0 (nearby search)" } : {}),
     },
     body: new URLSearchParams({ data: query }).toString(),
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    signal,
   });
   if (!res.ok) throw new Error(`overpass ${res.status}`);
   const json = (await res.json()) as { elements?: unknown; remark?: string };
@@ -99,8 +99,29 @@ async function queryOverpass(
   return json;
 }
 
+/** 全サーバーに同時にたずね、いちばん早く返ってきた答えを使う(残りは取り消す) */
+async function raceOverpass(
+  endpoints: string[],
+  query: string,
+  fetchImpl: typeof fetch,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const signals = [controller.signal, AbortSignal.timeout(ENDPOINT_TIMEOUT_MS)];
+  if (signal) signals.push(signal);
+  const combined = AbortSignal.any(signals);
+  try {
+    return await Promise.any(endpoints.map((e) => queryOverpass(e, query, fetchImpl, combined)));
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
+    throw error instanceof AggregateError ? (error.errors.at(-1) ?? error) : error;
+  } finally {
+    controller.abort();
+  }
+}
+
 /**
- * Overpass で近くをさがす。サーバーが混んでいれば予備に切り替え、
+ * Overpass で近くをさがす。本家と予備サーバーに同時に聞いて早い方を使い、
  * 近くに1件もなければ範囲を3倍に広げてもう一度さがす。
  * (サーバー側の /api/nearby と、ブラウザからの最後の手段の両方で使う)
  */
@@ -111,19 +132,7 @@ export async function fetchNearbyFromOverpass(
 ): Promise<Place[]> {
   const { signal, fetchImpl = fetch, endpoints = OVERPASS_ENDPOINTS } = options;
   for (const radius of [category.radiusM, category.radiusM * 3]) {
-    const query = buildOverpassQuery(category, center, radius);
-    let json: unknown = undefined;
-    let lastError: unknown;
-    for (const endpoint of endpoints) {
-      try {
-        json = await queryOverpass(endpoint, query, fetchImpl, signal);
-        break;
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        lastError = error;
-      }
-    }
-    if (json === undefined) throw lastError ?? new Error("overpass unavailable");
+    const json = await raceOverpass(endpoints, buildOverpassQuery(category, center, radius), fetchImpl, signal);
     const places = parseOverpassResponse(json, category, center);
     if (places.length > 0) return places;
   }
@@ -134,10 +143,32 @@ export async function fetchNearbyFromOverpass(
  * ブラウザから近くをさがす。まずサーバー(/api/nearby、キャッシュあり)に聞き、
  * だめなときだけブラウザから直接 Overpass に聞く。
  */
+const CLIENT_CACHE_MS = 5 * 60_000;
+const clientCache = new Map<string, { at: number; places: Place[] }>();
+
+/** テスト用 */
+export function clearNearbyCache() {
+  clientCache.clear();
+}
+
 export async function searchNearby(
   category: SearchCategory,
   center: LngLat,
   options: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+): Promise<Place[]> {
+  // 同じ場所(約100m)・同じカテゴリは5分間覚えておき、すぐに出す
+  const key = `${category.id}:${center.lat.toFixed(3)},${center.lng.toFixed(3)}`;
+  const hit = clientCache.get(key);
+  if (hit && Date.now() - hit.at < CLIENT_CACHE_MS) return hit.places;
+  const places = await searchNearbyUncached(category, center, options);
+  clientCache.set(key, { at: Date.now(), places });
+  return places;
+}
+
+async function searchNearbyUncached(
+  category: SearchCategory,
+  center: LngLat,
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch },
 ): Promise<Place[]> {
   const { signal, fetchImpl = fetch } = options;
   const params = new URLSearchParams({
@@ -146,7 +177,11 @@ export async function searchNearby(
     lng: center.lng.toFixed(4),
   });
   try {
-    const res = await fetchImpl(`/api/nearby?${params.toString()}`, { signal });
+    // サーバー側は1回 3.5 秒まで(範囲を広げると2回)なので、それ以上は待たない
+    const timeout = AbortSignal.timeout(8_000);
+    const res = await fetchImpl(`/api/nearby?${params.toString()}`, {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
     if (res.ok) {
       const json = (await res.json()) as { places?: Place[] };
       if (Array.isArray(json.places)) return json.places;

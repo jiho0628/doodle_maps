@@ -47,7 +47,7 @@ describe("近くをさがす(Overpass)", () => {
 
   it("クエリに条件と半径を入れる", () => {
     expect(buildOverpassQuery(cafe, center)).toBe(
-      '[out:json][timeout:15];nwr["amenity"="cafe"](around:1200,35.700000,139.700000);out center 60;',
+      '[out:json][timeout:8];nw["amenity"="cafe"](around:1200,35.700000,139.700000);out center 40;',
     );
   });
 
@@ -93,30 +93,40 @@ describe("fetchNearbyFromOverpass", () => {
   const center = { lng: 139.7, lat: 35.7 };
   const hit = { elements: [{ type: "node", id: 1, lat: 35.701, lon: 139.7, tags: { name: "ローソン" } }] };
 
-  it("本家が混んでいたら予備サーバーに切り替える", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockImplementationOnce(async () => new Response("", { status: 429 }))
-      .mockImplementationOnce(async () => Response.json({ elements: [], remark: "runtime error: timeout" }))
-      .mockImplementationOnce(async () => Response.json(hit));
+  it("本家と予備に同時に聞き、答えられたサーバーの結果を使う", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+      const host = new URL(url).host;
+      if (host === "overpass-api.de") return new Response("", { status: 429 });
+      if (host === "overpass.private.coffee") return Response.json({ elements: [], remark: "runtime error: timeout" });
+      return Response.json(hit);
+    });
     const places = await fetchNearbyFromOverpass(conv, center, { fetchImpl });
     expect(places.map((p) => p.name)).toEqual(["ローソン"]);
-    expect(fetchImpl.mock.calls.map(([u]) => new URL(String(u)).host)).toEqual([
-      "overpass-api.de",
-      "overpass.private.coffee",
-      "overpass.kumi.systems",
-    ]);
+    expect(new Set(fetchImpl.mock.calls.map(([u]) => new URL(String(u)).host))).toEqual(
+      new Set(["overpass-api.de", "overpass.private.coffee", "overpass.kumi.systems"]),
+    );
   });
 
   it("近くに無ければ範囲を広げてさがしなおす", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockImplementationOnce(async () => Response.json({ elements: [] }))
-      .mockImplementationOnce(async () => Response.json(hit));
+    const fetchImpl = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      const q = new URLSearchParams(String(init.body)).get("data") ?? "";
+      return Response.json(q.includes("around:3600,") ? hit : { elements: [] });
+    });
     const places = await fetchNearbyFromOverpass(conv, center, { fetchImpl });
     expect(places).toHaveLength(1);
-    const secondQuery = new URLSearchParams(fetchImpl.mock.calls[1][1].body).get("data");
-    expect(secondQuery).toContain("around:3600,");
+  });
+
+  it("返事のないサーバーは待ちすぎない", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn().mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted")))),
+    );
+    const promise = fetchNearbyFromOverpass(conv, center, { fetchImpl });
+    const assertion = expect(promise).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(3_600);
+    await assertion;
+    vi.useRealTimers();
   });
 
   it("全部だめならエラー", async () => {
