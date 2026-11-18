@@ -108,8 +108,8 @@ describe("fetchNearbyFromOverpass", () => {
   });
 
   it("近くに無ければ範囲を広げてさがしなおす", async () => {
-    const fetchImpl = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
-      const q = new URLSearchParams(String(init.body)).get("data") ?? "";
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+      const q = new URL(url).searchParams.get("data") ?? "";
       return Response.json(q.includes("around:3600,") ? hit : { elements: [] });
     });
     const places = await fetchNearbyFromOverpass(conv, center, { fetchImpl });
@@ -127,6 +127,16 @@ describe("fetchNearbyFromOverpass", () => {
     await vi.advanceTimersByTimeAsync(3_600);
     await assertion;
     vi.useRealTimers();
+  });
+
+  it("GET で送り、独自の Accept ヘッダーは付けない(406 対策)", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => Response.json(hit));
+    await fetchNearbyFromOverpass(conv, center, { fetchImpl, endpoints: ["https://overpass-api.de/api/interpreter"] });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(JSON.stringify(init.headers ?? {})).not.toMatch(/accept/i);
+    expect(new URL(url).searchParams.get("data")).toContain('nw["shop"="convenience"]');
   });
 
   it("全部だめならエラー", async () => {

@@ -8,6 +8,9 @@ import type { SearchCategory } from "./categories";
  */
 export const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
+/** サーバーから Overpass に聞くときに名乗るアプリ名 */
+export const OVERPASS_USER_AGENT = "doodle_maps/1.0";
+
 /** 本家が混んでいる(429/504)ときに順に試す予備サーバー */
 export const OVERPASS_ENDPOINTS = [
   OVERPASS_URL,
@@ -79,15 +82,13 @@ async function queryOverpass(
   fetchImpl: typeof fetch,
   signal: AbortSignal,
 ): Promise<unknown> {
-  const res = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-      // サーバーから呼ぶときは名乗る(Overpass の利用ルール。ブラウザでは無視される)
-      ...(typeof window === "undefined" ? { "User-Agent": "doodle_maps/1.0 (nearby search)" } : {}),
-    },
-    body: new URLSearchParams({ data: query }).toString(),
+  // GET + ヘッダーなし(ブラウザでは「単純なリクエスト」になり、事前確認の往復がない)。
+  // 独自の Accept を付けると overpass-api.de が 406 で断るため付けない。
+  // サーバーから呼ぶときだけ、利用ルールどおりアプリ名を名乗る。
+  const url = `${endpoint}?${new URLSearchParams({ data: query }).toString()}`;
+  const res = await fetchImpl(url, {
+    method: "GET",
+    headers: typeof window === "undefined" ? { "User-Agent": OVERPASS_USER_AGENT } : undefined,
     signal,
   });
   if (!res.ok) throw new Error(`overpass ${res.status}`);
