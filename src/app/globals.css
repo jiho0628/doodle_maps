@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/*
+ * A案「ミルクティー」デザイントークン
+ * 色はここで一元管理します。コンポーネントでは bg-primary / text-ink などの
+ * Tailwind クラスとして使ってください(生の16進数を直接書かない)。
+ */
+@theme {
+  /* 背景 */
+  --color-cream: #fbefe3; /* 地図の地色・淡い面 */
+  --color-surface: #fff7ef; /* 画面背景・下タブ */
+  --color-card: #ffffff;
+
+  /* 文字 */
+  --color-ink: #4a3a33; /* 本文 */
+  --color-ink-soft: #7a6359; /* 補足 */
+
+  /* メイン(コーラル) */
+  --color-primary: #c8524c;
+  --color-primary-strong: #9e3b36;
+  --color-primary-soft: #f8dcd6;
+  --color-coral: #e86f68;
+  --color-blush: #f8c3c0;
+  --color-dash: #e8a9a4;
+
+  /* 線 */
+  --color-line: #f0dcc8;
+
+  /* アクセント(カテゴリ用 淡色 / 濃色ペア) */
+  --color-leaf-soft: #e3efd6;
+  --color-leaf: #4e6b3e;
+  --color-sky-soft: #d6e8f2;
+  --color-sky: #3d6580;
+  --color-honey-soft: #f4e6c8;
+  --color-honey: #8a6420;
+
+  --font-sans: var(--font-zen-maru), "Hiragino Maru Gothic ProN", "Hiragino Sans",
+    "Noto Sans JP", sans-serif;
+
+  --shadow-soft: 0 6px 20px rgba(122, 82, 60, 0.16);
+  --shadow-card: 0 4px 14px rgba(122, 82, 60, 0.1);
+  --shadow-float: 0 8px 24px rgba(122, 82, 60, 0.18);
+
+  /* 下タブの高さ(セーフエリアは別途加算) */
+  --spacing-tabbar: 96px;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* 文字を小さくしすぎない。ベース 18px */
+  font-size: 18px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* キーボード操作時だけはっきりしたフォーカス枠 */
+:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 3px;
+}
