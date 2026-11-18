@@ -8,7 +8,7 @@ import { navigateHref, walkLabel } from "@/features/route";
 import { publicEnv } from "@/lib/config/env";
 import type { Place } from "@/types";
 import { CATEGORY_TONE, CategoryIcon } from "./CategoryIcon";
-import { SEARCH_CATEGORIES, type SearchCategory } from "./categories";
+import { matchCategory, SEARCH_CATEGORIES, type SearchCategory } from "./categories";
 import { geocode } from "./geocode";
 import { searchNearby } from "./nearby";
 import { useOrigin, type Origin } from "./useOrigin";
@@ -54,12 +54,12 @@ export function SearchScreen() {
   const composing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // 検索する
+  // 検索する(近くをさがすときは、基準の場所が決まるまで待つ)
   useEffect(() => {
-    if (!origin) return;
-    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 検索を始めたことを画面に出す
     setResult(mode.kind === "idle" ? { status: "idle" } : { status: "loading" });
+    if (mode.kind === "idle" || !origin) return;
+    const controller = new AbortController();
     runSearch(mode, origin, controller.signal)
       .then((next) => {
         if (!controller.signal.aborted) setResult(next);
@@ -78,7 +78,9 @@ export function SearchScreen() {
     setMode((m) => {
       if (!q) return { kind: "idle" };
       if (m.kind === "text" && m.query === q) return m;
-      if (m.kind === "category" && m.category.label === q) return m;
+      // 「コンビニ」「近くのカフェ」などは、店名の検索ではなく近くの店をさがす
+      const category = matchCategory(q);
+      if (category) return m.kind === "category" && m.category.id === category.id ? m : { kind: "category", category };
       return { kind: "text", query: q };
     });
   };
@@ -127,7 +129,7 @@ export function SearchScreen() {
         >
           <BackIcon size={28} />
         </Link>
-        <label className="flex h-[60px] min-w-0 flex-1 items-center gap-2.5 rounded-full border-[2.5px] border-coral bg-card px-[18px]">
+        <label className="flex h-[60px] min-w-0 flex-1 items-center gap-2.5 rounded-full border-[2.5px] border-coral bg-card px-[18px] focus-within:ring-[3px] focus-within:ring-primary-soft">
           <span className="text-primary">
             <SearchIcon size={24} />
           </span>
@@ -146,7 +148,9 @@ export function SearchScreen() {
             }}
             placeholder="場所の名前や住所"
             aria-label="場所をさがす"
-            className="w-full min-w-0 flex-1 border-none bg-transparent text-xl font-bold text-ink outline-none placeholder:font-medium placeholder:text-ink-soft/70"
+            // 共通の :focus-visible の四角い枠を消し、外側の丸い枠(focus-within)だけで示す
+            style={{ outline: "none" }}
+            className="w-full min-w-0 flex-1 border-none bg-transparent text-xl font-bold text-ink [&::-webkit-search-cancel-button]:hidden placeholder:font-medium placeholder:text-ink-soft/70"
           />
         </label>
       </form>
@@ -204,7 +208,9 @@ function Results({ heading, result, origin }: { heading: string | null; result: 
       </h2>
       {origin && origin.source !== "gps" ? (
         <p className="m-0 text-[15px] leading-relaxed text-ink-soft">
-          いまいる場所がわからないため、最後に見ていた地図のあたりでさがしています。
+          {origin.source === "map"
+            ? "いまいる場所がわからないため、最後に見ていた地図のあたりでさがしています。"
+            : "いまいる場所がわからないため、東京駅のあたりでさがしています。位置情報を許可すると近くをさがせます。"}
         </p>
       ) : null}
       <ResultBody result={result} origin={origin} />
@@ -222,7 +228,7 @@ function ResultBody({ result, origin }: { result: ResultState; origin: Origin | 
     case "loading":
       return (
         <Card className="animate-fade-in p-6 text-center text-lg font-bold text-ink-soft" role="status">
-          さがしています…
+          {origin ? "さがしています…" : "いまいる場所を調べています…"}
         </Card>
       );
     case "no_key":
