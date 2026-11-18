@@ -41,6 +41,17 @@
   --shadow-card: 0 4px 14px rgba(122, 82, 60, 0.1);
   --shadow-float: 0 8px 24px rgba(122, 82, 60, 0.18);
 
+  /* アバター(オリジナル動物)の毛色・くちばし */
+  --color-fur-bear: #c99a6e;
+  --color-fur-bear-muzzle: #f3dec6;
+  --color-fur-cat: #f2b880;
+  --color-fur-chick: #ffd966;
+  --color-beak-chick: #f08a3c;
+  --color-fur-penguin: #4a5b7a;
+  --color-beak-penguin: #f0a93c;
+  /* 「写真からつくる」の点線枠 */
+  --color-dash-warm: #c9a08e;
+
   /* 下タブの高さ(セーフエリアは別途加算) */
   --spacing-tabbar: 96px;
 }

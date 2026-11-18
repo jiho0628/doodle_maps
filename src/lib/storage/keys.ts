@@ -12,6 +12,8 @@ export const STORAGE_KEYS = {
   mapCamera: "map.camera",
   /** 向き(コンパス)の案内を一度出したか: boolean */
   compassPrompted: "compass.prompted",
+  /** 向き(コンパス)を出すと答えたか: boolean(iPhone で次回から自動で許可を取り直すのに使う) */
+  compassEnabled: "compass.enabled",
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
