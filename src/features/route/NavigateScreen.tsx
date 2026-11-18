@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, ButtonLink, Card, IconButton, LocateIcon, WarningIcon } from "@/components/ui";
+import { retryLocation, UserLocationMarker, useCurrentLocation, type LocationStatus } from "@/features/location";
 import { MapView } from "@/features/map";
 import type { Place } from "@/types";
 import { formatClock, formatDistance, formatMinutes } from "./geo";
@@ -11,7 +12,6 @@ import { RouteMapLayer } from "./RouteMapLayer";
 import { TurnIcon } from "./TurnIcon";
 import { turnLabel } from "./turns";
 import { useNavigation, type NavigationError, type NavigationView } from "./useNavigation";
-import { usePosition, type PositionStatus } from "./usePosition";
 import { useWakeLock } from "./useWakeLock";
 
 /** 経路の全体を見せてから、現在地についていくまでの時間 */
@@ -27,7 +27,7 @@ export function NavigateScreen() {
 
 function Navigation({ destination }: { destination: Place }) {
   const [attempt, setAttempt] = useState(0);
-  const location = usePosition(true, attempt);
+  const location = useCurrentLocation();
   const nav = useNavigation(destination, location.position, attempt);
   const [follow, setFollow] = useState(false);
 
@@ -44,6 +44,7 @@ function Navigation({ destination }: { destination: Place }) {
 
   const retry = () => {
     setFollow(false);
+    retryLocation();
     setAttempt((n) => n + 1);
   };
 
@@ -57,6 +58,7 @@ function Navigation({ destination }: { destination: Place }) {
           follow={follow && navigating}
           onUserMove={() => setFollow(false)}
         />
+        <UserLocationMarker />
         {navigating ? <TurnBanner nav={nav} /> : null}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-end gap-3 [&>*]:pointer-events-auto">
           {navigating && !follow ? (
@@ -138,7 +140,7 @@ function SheetContent({
 }: {
   destination: Place;
   nav: NavigationView;
-  positionStatus: PositionStatus;
+  positionStatus: LocationStatus;
   onRetry: () => void;
 }) {
   const now = useNow(30_000);
