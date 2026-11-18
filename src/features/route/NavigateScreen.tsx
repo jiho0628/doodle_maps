@@ -79,7 +79,7 @@ function Navigation({ destination }: { destination: Place }) {
   );
 }
 
-function isPositionProblem(status: PositionStatus): boolean {
+function isPositionProblem(status: LocationStatus): boolean {
   return status === "denied" || status === "unsupported" || status === "unavailable";
 }
 
