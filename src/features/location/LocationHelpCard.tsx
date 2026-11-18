@@ -71,7 +71,7 @@ export function LocationHelpCard({
   if (!content) return null;
 
   return (
-    <Card elevated role="alert" className="flex flex-col gap-3.5 px-5 py-5">
+    <Card elevated role="alert" className="flex animate-rise-in flex-col gap-3.5 px-5 py-5">
       <div className="flex items-center gap-3">
         <span className="flex-none text-primary">
           <WarningIcon size={32} />

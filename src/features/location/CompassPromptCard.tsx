@@ -8,7 +8,7 @@ import { Button, Card, CompassIcon } from "@/components/ui";
  */
 export function CompassPromptCard({ onAccept, onDecline }: { onAccept: () => void; onDecline: () => void }) {
   return (
-    <Card elevated className="flex flex-col gap-3.5 px-5 py-5" role="dialog" aria-labelledby="compass-prompt-title">
+    <Card elevated className="flex animate-rise-in flex-col gap-3.5 px-5 py-5" role="dialog" aria-labelledby="compass-prompt-title">
       <div className="flex items-center gap-3">
         <span className="flex-none text-primary">
           <CompassIcon size={34} />
