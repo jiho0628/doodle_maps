@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { IconButton, LocateIcon } from "@/components/ui";
+import { IconButton, LocateIcon, cn } from "@/components/ui";
 import { MapOverlay, useMap } from "@/features/map";
 import { AvatarFigure, avatarLabel, useAvatar } from "@/features/avatar";
 import { STORAGE_KEYS, useStoredState } from "@/lib/storage";
@@ -139,6 +139,8 @@ export function LocationLayer() {
 
   // ほかの機能(お気に入りのカードなど)が下にカードを出している間は、こちらのカードは控える
   const [otherBottomCard, setOtherBottomCard] = useState(false);
+  // 下のカードが高くて右下のボタンが上の検索バーまで届いてしまうときは、ボタンを隠す
+  const [buttonsFit, setButtonsFit] = useState(true);
   const card = otherBottomCard ? null : showHelp ? (
     <LocationHelpCard
       status={location.status}
@@ -157,14 +159,14 @@ export function LocationLayer() {
   return (
     <>
       <UserLocationMarker />
-      <MapOverlay position="bottom-right">
+      <MapOverlay position="bottom-right" className={buttonsFit ? undefined : "invisible"}>
         {/* 小さい画面でもはみ出さないよう、自分のカードを出す間は現在地ボタンだけにする */}
         {card ? null : <AvatarButton />}
         {locateButton}
-        <BottomOverlaySpacer onOtherCardChange={setOtherBottomCard} />
+        <BottomOverlaySpacer onOtherCardChange={setOtherBottomCard} onFitChange={setButtonsFit} />
       </MapOverlay>
       {card ? (
-        <MapOverlay position="bottom" className={OWN_CARD_CLASS}>
+        <MapOverlay position="bottom" className={cn(OWN_CARD_CLASS, CARD_FIT_CLASS)}>
           {card}
         </MapOverlay>
       ) : null}
@@ -175,16 +177,31 @@ export function LocationLayer() {
 /**
  * 右下のボタンが、下部のカード(この機能の案内、お気に入りのカードなど、どの機能のものでも)に
  * 重ならないよう、下部に出ているものの高さぶんだけ持ち上げる。
+ * 持ち上げた結果、上部(検索バーなど)に重なるときは onFitChange(false) で知らせる。
  */
 const OWN_CARD_CLASS = "location-card-overlay";
 
-function BottomOverlaySpacer({ onOtherCardChange }: { onOtherCardChange: (present: boolean) => void }) {
+/**
+ * 小さい画面でカードが上の検索バー(高さ 68px+上の余白)に重ならないよう、高さを抑えて中をスクロールさせる。
+ * 84px = 検索バー 68px + すき間 16px
+ */
+const CARD_FIT_CLASS =
+  "max-h-[calc(100%_-_max(20px,env(safe-area-inset-top))_-_84px)] [&>*]:min-h-0 [&>*]:overflow-y-auto";
+
+function BottomOverlaySpacer({
+  onOtherCardChange,
+  onFitChange,
+}: {
+  onOtherCardChange: (present: boolean) => void;
+  onFitChange: (fits: boolean) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
 
   useEffect(() => {
-    const root = ref.current?.closest("[data-map-overlay]")?.parentElement;
-    if (!root || typeof ResizeObserver === "undefined") return;
+    const column = ref.current?.closest<HTMLElement>("[data-map-overlay]");
+    const root = column?.parentElement;
+    if (!column || !root || typeof ResizeObserver === "undefined") return;
     const measure = () => {
       let h = 0;
       const overlays = root.querySelectorAll<HTMLElement>(':scope > [data-map-overlay="bottom"]');
@@ -195,10 +212,18 @@ function BottomOverlaySpacer({ onOtherCardChange }: { onOtherCardChange: (presen
         h = Math.max(h, el.offsetHeight > pad ? el.offsetHeight - pad : 0);
       });
       setHeight(h);
+      // 右下のボタンのいちばん上が、上部の部品の下端より上に来たら「入りきらない」
+      const top = root.querySelector<HTMLElement>(':scope > [data-map-overlay="top"]');
+      const firstButton = Array.from(column.children).find((el) => el !== ref.current);
+      onFitChange(
+        !top || !firstButton || firstButton.getBoundingClientRect().top >= top.getBoundingClientRect().bottom + 8,
+      );
     };
     const resize = new ResizeObserver(measure);
     const observeAll = () => {
       resize.disconnect();
+      resize.observe(root);
+      resize.observe(column);
       root.querySelectorAll<HTMLElement>(':scope > [data-map-overlay="bottom"]').forEach((el) => resize.observe(el));
       measure();
     };
@@ -209,7 +234,7 @@ function BottomOverlaySpacer({ onOtherCardChange }: { onOtherCardChange: (presen
       mutation.disconnect();
       resize.disconnect();
     };
-  }, [onOtherCardChange]);
+  }, [onOtherCardChange, onFitChange]);
 
   return <div ref={ref} aria-hidden="true" className="pointer-events-none! -mt-3" style={{ height }} />;
 }
