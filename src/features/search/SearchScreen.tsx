@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { BackIcon, ButtonLink, Card, cn, SearchIcon } from "@/components/ui";
+import { BackIcon, Button, ButtonLink, Card, cn, SearchIcon } from "@/components/ui";
 import { FavoriteToggleButton } from "@/features/favorites";
 import { navigateHref, walkLabel } from "@/features/route";
 import { publicEnv } from "@/lib/config/env";
 import type { LngLat, Place } from "@/types";
 import { CATEGORY_TONE, CategoryIcon } from "./CategoryIcon";
 import { matchCategory, SEARCH_CATEGORIES, type SearchCategory } from "./categories";
-import { geocode } from "./geocode";
+import { searchPlacesByText } from "./geocode";
 import { searchNearbyWithMapTiler } from "./mapTilerNearby";
 import { searchNearby } from "./nearby";
 import { useOrigin, type Origin } from "./useOrigin";
@@ -43,7 +43,7 @@ async function runSearch(
   }
 
   if (!key) return { status: "no_key" };
-  return { status: "done", places: await geocode(mode.query, { key, proximity: origin?.position, signal }) };
+  return { status: "done", places: await searchPlacesByText(mode.query, { key, proximity: origin?.position, signal }) };
 }
 
 /** 同じ店か(名前が同じで、だいたい同じ場所) */
@@ -70,7 +70,7 @@ async function nearbyProgressive(
 ): Promise<Place[]> {
   let shown: Place[] = [];
   let pending = 0;
-  let succeeded = 0;
+  let failed = 0;
 
   const add = (places: Place[]) => {
     const extra = places.filter((p) => !shown.some((s) => samePlace(s, p)));
@@ -86,17 +86,19 @@ async function nearbyProgressive(
       source.then(
         (places) => {
           pending -= 1;
-          succeeded += 1;
           add(places);
           if (pending > 0 && shown.length > 0 && !signal.aborted) onPartial({ status: "done", places: shown, more: true });
         },
         () => {
           pending -= 1;
+          failed += 1;
         },
       ),
     ),
   );
-  if (succeeded === 0) throw new Error("nearby search failed");
+  // どこかで通信に失敗して1件も出せないときは「見つからない」ではなく通信のエラーにする
+  // (OpenStreetMap が失敗し、MapTiler が0件だっただけなのに「ない」と言わないように)
+  if (shown.length === 0 && failed > 0) throw new Error("nearby search failed");
   return shown;
 }
 
@@ -106,6 +108,8 @@ export function SearchScreen() {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<SearchMode>({ kind: "idle" });
   const [result, setResult] = useState<ResultState>({ status: "idle" });
+  /** 「もう一度ためす」を押すたびに増やし、同じ条件で検索しなおす */
+  const [attempt, setAttempt] = useState(0);
   const composing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -133,7 +137,7 @@ export function SearchScreen() {
         if (!controller.signal.aborted) setResult({ status: "error" });
       });
     return () => controller.abort();
-  }, [mode, categoryOrigin]);
+  }, [mode, categoryOrigin, attempt]);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -250,12 +254,22 @@ export function SearchScreen() {
         </div>
       </section>
 
-      <Results heading={heading} result={result} origin={origin} />
+      <Results heading={heading} result={result} origin={origin} onRetry={() => setAttempt((n) => n + 1)} />
     </div>
   );
 }
 
-function Results({ heading, result, origin }: { heading: string | null; result: ResultState; origin: Origin | null }) {
+function Results({
+  heading,
+  result,
+  origin,
+  onRetry,
+}: {
+  heading: string | null;
+  result: ResultState;
+  origin: Origin | null;
+  onRetry: () => void;
+}) {
   if (result.status === "idle" || !heading) {
     return (
       <p className="m-0 text-center text-base leading-relaxed text-ink-soft">
@@ -278,7 +292,7 @@ function Results({ heading, result, origin }: { heading: string | null; result: 
             : "いまいる場所がわからないため、東京駅のあたりでさがしています。位置情報を許可すると近くをさがせます。"}
         </p>
       ) : null}
-      <ResultBody result={result} origin={origin} />
+      <ResultBody result={result} origin={origin} onRetry={onRetry} />
       {result.status === "done" && result.more ? (
         <p className="m-0 text-center text-[15px] text-ink-soft" role="status">
           ほかにもさがしています…
@@ -293,7 +307,7 @@ function Results({ heading, result, origin }: { heading: string | null; result: 
   );
 }
 
-function ResultBody({ result, origin }: { result: ResultState; origin: Origin | null }) {
+function ResultBody({ result, origin, onRetry }: { result: ResultState; origin: Origin | null; onRetry: () => void }) {
   switch (result.status) {
     case "loading":
       return (
@@ -309,8 +323,11 @@ function ResultBody({ result, origin }: { result: ResultState; origin: Origin | 
       );
     case "error":
       return (
-        <Card className="animate-rise-in p-6 text-lg leading-relaxed text-ink-soft" role="alert">
-          うまくさがせませんでした。電波のよい場所で、もう一度ためしてください。
+        <Card className="flex animate-rise-in flex-col gap-4 p-6">
+          <p className="m-0 text-lg leading-relaxed text-ink-soft" role="alert">
+            通信がうまくいかなかったため、さがせませんでした。少し待ってから、もう一度ためしてください。
+          </p>
+          <Button onClick={onRetry}>もう一度ためす</Button>
         </Card>
       );
     case "done":

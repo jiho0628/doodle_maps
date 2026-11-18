@@ -35,13 +35,21 @@ describe("GET /api/nearby", () => {
     const json = await res.json();
     expect(json.places.map((p: { name: string }) => p.name)).toEqual(["近い店", "遠い店"]);
     // サーバーからはアプリ名を名乗り、GET で聞く
-    expect(fetchMock.mock.calls[0][1].headers["User-Agent"]).toBe("doodle_maps/1.0");
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({
+      "User-Agent": "doodle_maps/1.0 (+http://localhost)",
+      Referer: "http://localhost/",
+    });
     expect(fetchMock.mock.calls[0][1].method).toBe("GET");
   });
 
-  it("Overpass が全部だめなら 502", async () => {
+  it("Overpass が全部だめなら 502 と理由を返し、ログにも残す", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("", { status: 504 })));
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect((await get("category=cafe&lat=35&lng=139")).status).toBe(502);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await get("category=cafe&lat=35&lng=139");
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe("upstream");
+    expect(json.detail).toContain("overpass-api.de: HTTP 504");
+    expect(warn).toHaveBeenCalledWith("[api/nearby] Overpass error", expect.stringContaining("HTTP 504"));
   });
 });
