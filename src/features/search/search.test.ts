@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { findCategory } from "./categories";
+import { findCategory, matchCategory } from "./categories";
 import { buildGeocodeUrl, parseGeocodeResponse } from "./geocode";
-import { buildOverpassQuery, parseOverpassResponse } from "./nearby";
+import { buildOverpassQuery, fetchNearbyFromOverpass, parseOverpassResponse } from "./nearby";
+import { vi } from "vitest";
 
 describe("MapTiler 文字検索", () => {
   it("URL に日本語・近くの場所・日本限定を入れる", () => {
@@ -70,5 +71,56 @@ describe("近くをさがす(Overpass)", () => {
   it("名前のないトイレは「公衆トイレ」と呼ぶ", () => {
     const places = parseOverpassResponse({ elements: [{ type: "node", id: 9, lat: 35.7, lon: 139.7, tags: {} }] }, toilet, center);
     expect(places[0].name).toBe("公衆トイレ");
+  });
+});
+
+describe("カテゴリの言葉", () => {
+  it("言い換えや「近くの」付きでもカテゴリとみなす", () => {
+    expect(matchCategory("コンビニ")?.id).toBe("convenience");
+    expect(matchCategory(" 近くのコンビニ ")?.id).toBe("convenience");
+    expect(matchCategory("こんびに")?.id).toBe("convenience");
+    expect(matchCategory("ｺﾝﾋﾞﾆ")?.id).toBe("convenience");
+    expect(matchCategory("喫茶店")?.id).toBe("cafe");
+    expect(matchCategory("お手洗い")?.id).toBe("toilet");
+    expect(matchCategory("トイレどこ")?.id).toBe("toilet");
+    expect(matchCategory("東京駅")).toBeUndefined();
+    expect(matchCategory("セブンイレブン")).toBeUndefined();
+  });
+});
+
+describe("fetchNearbyFromOverpass", () => {
+  const conv = findCategory("convenience")!;
+  const center = { lng: 139.7, lat: 35.7 };
+  const hit = { elements: [{ type: "node", id: 1, lat: 35.701, lon: 139.7, tags: { name: "ローソン" } }] };
+
+  it("本家が混んでいたら予備サーバーに切り替える", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(async () => new Response("", { status: 429 }))
+      .mockImplementationOnce(async () => Response.json({ elements: [], remark: "runtime error: timeout" }))
+      .mockImplementationOnce(async () => Response.json(hit));
+    const places = await fetchNearbyFromOverpass(conv, center, { fetchImpl });
+    expect(places.map((p) => p.name)).toEqual(["ローソン"]);
+    expect(fetchImpl.mock.calls.map(([u]) => new URL(String(u)).host)).toEqual([
+      "overpass-api.de",
+      "overpass.private.coffee",
+      "overpass.kumi.systems",
+    ]);
+  });
+
+  it("近くに無ければ範囲を広げてさがしなおす", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(async () => Response.json({ elements: [] }))
+      .mockImplementationOnce(async () => Response.json(hit));
+    const places = await fetchNearbyFromOverpass(conv, center, { fetchImpl });
+    expect(places).toHaveLength(1);
+    const secondQuery = new URLSearchParams(fetchImpl.mock.calls[1][1].body).get("data");
+    expect(secondQuery).toContain("around:3600,");
+  });
+
+  it("全部だめならエラー", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => new Response("", { status: 504 }));
+    await expect(fetchNearbyFromOverpass(conv, center, { fetchImpl })).rejects.toThrow();
   });
 });
