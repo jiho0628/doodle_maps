@@ -10,6 +10,7 @@ import type { LngLat, Place } from "@/types";
 import { CATEGORY_TONE, CategoryIcon } from "./CategoryIcon";
 import { matchCategory, SEARCH_CATEGORIES, type SearchCategory } from "./categories";
 import { searchPlacesByText } from "./geocode";
+import { searchHere } from "./hereClient";
 import { searchNearbyWithMapTiler } from "./mapTilerNearby";
 import { resetNearbyFailure, searchNearby } from "./nearby";
 import { useOrigin, type Origin } from "./useOrigin";
@@ -23,7 +24,7 @@ type ResultState =
   | { status: "idle" }
   | { status: "loading" }
   /** more: まだ別のさがし方の結果を待っている(あとから下に足す) */
-  | { status: "done"; places: Place[]; more?: boolean }
+  | { status: "done"; places: Place[]; more?: boolean; source?: "here" }
   | { status: "error" }
   /** 文字検索のキー(NEXT_PUBLIC_MAPTILER_KEY)が未設定 */
   | { status: "no_key" };
@@ -37,12 +38,22 @@ async function runSearch(
   const key = publicEnv.maptilerKey;
   if (mode.kind === "idle") return { status: "idle" };
 
+  if (!origin) return { status: "loading" };
+
+  // HERE(キーがあるとき)を先に聞く。小さなお店まで載っていて速い。
+  // キー未設定・失敗・0件なら、今までの MapTiler / OpenStreetMap でさがす
+  const here = await searchHere(
+    mode.kind === "category" ? { category: mode.category.id } : { q: mode.query },
+    origin.position,
+    { signal },
+  );
+  if (here && here.length > 0) return { status: "done", places: here, source: "here" };
+
   if (mode.kind === "category") {
-    if (!origin) return { status: "loading" };
     return { status: "done", places: await nearbyProgressive(mode.category, origin.position, key, signal, onPartial) };
   }
 
-  if (!key) return { status: "no_key" };
+  if (!key) return here ? { status: "done", places: [] } : { status: "no_key" };
   return { status: "done", places: await searchPlacesByText(mode.query, { key, proximity: origin?.position, signal }) };
 }
 
@@ -113,21 +124,15 @@ export function SearchScreen() {
   const composing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // 名前での検索は、あとから現在地がわかってもやり直さない(結果が入れ替わらないように)
-  const originRef = useRef(origin);
-  useEffect(() => {
-    originRef.current = origin;
-  }, [origin]);
-  const categoryOrigin = mode.kind === "category" ? origin : null;
+  const searchOrigin = mode.kind === "idle" ? null : origin;
 
-  // 検索する(近くをさがすときは、基準の場所が決まるまで待つ)
+  // 検索する(基準の場所が決まるまで待つ。名前での検索も近くのお店を優先するため)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 検索を始めたことを画面に出す
     setResult(mode.kind === "idle" ? { status: "idle" } : { status: "loading" });
-    // 名前での検索は現在地を待たずにすぐ始める(近くをさがすときだけ待つ)
-    if (mode.kind === "idle" || (mode.kind === "category" && !categoryOrigin)) return;
+    if (mode.kind === "idle" || !searchOrigin) return;
     const controller = new AbortController();
-    runSearch(mode, mode.kind === "category" ? categoryOrigin : originRef.current, controller.signal, (partial) => {
+    runSearch(mode, searchOrigin, controller.signal, (partial) => {
       if (!controller.signal.aborted) setResult(partial);
     })
       .then((next) => {
@@ -137,7 +142,7 @@ export function SearchScreen() {
         if (!controller.signal.aborted) setResult({ status: "error" });
       });
     return () => controller.abort();
-  }, [mode, categoryOrigin, attempt]);
+  }, [mode, searchOrigin, attempt]);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -300,6 +305,10 @@ function Results({
         <p className="m-0 text-center text-[15px] text-ink-soft" role="status">
           ほかにもさがしています…
         </p>
+      ) : null}
+      {result.status === "done" && result.source === "here" && result.places.length > 0 ? (
+        // HERE の規約: 他社の地図と使うときは出所を示す
+        <p className="m-0 text-right text-[13px] text-ink-soft">場所の情報 © HERE</p>
       ) : null}
       {result.status === "done" && result.places.length > 0 ? (
         <p className="m-0 text-center text-[15px] leading-relaxed text-ink-soft">

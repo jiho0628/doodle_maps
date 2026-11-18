@@ -43,6 +43,7 @@ CI(`.github/workflows/ci.yml`)は PR と main への push で lint・型チェ�
 | `NEXT_PUBLIC_MAPTILER_KEY` | 地図タイル・場所検索 | ブラウザに出る(MapTiler 側で許可ドメインを設定すること) |
 | `NEXT_PUBLIC_MAPTILER_STYLE` | 地図の見た目(既定 `streets-v2`) | ブラウザ |
 | `ORS_API_KEY` | ルート検索 | サーバーのみ |
+| `HERE_API_KEY` | 店・施設の検索(任意。未設定なら MapTiler / OpenStreetMap) | サーバーのみ |
 
 読むときは必ず `src/lib/config/env.ts` を通してください。
 

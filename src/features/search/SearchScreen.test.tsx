@@ -7,9 +7,18 @@ vi.mock("@/lib/config/env", () => env);
 
 import { SearchScreen } from "./SearchScreen";
 import { clearNearbyCache } from "./nearby";
+import { resetHereClient } from "./hereClient";
+
+/** HERE のキーは未設定(/api/here は 503)として、それ以外を mock にまかせる */
+function stubFetch(mock: (url: string, init?: RequestInit) => Promise<Response>) {
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+    String(url).startsWith("/api/here") ? Promise.resolve(Response.json({ error: "not_configured" }, { status: 503 })) : mock(url, init),
+  );
+}
 
 afterEach(() => {
   clearNearbyCache();
+  resetHereClient();
   vi.unstubAllGlobals();
   env.publicEnv.maptilerKey = "";
 });
@@ -21,7 +30,7 @@ describe("SearchScreen", () => {
         places: [{ id: "osm:node/1", name: "カフェ こもれび", position: { lng: 139.767, lat: 35.6813 }, category: "cafe" }],
       }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     render(<SearchScreen />);
 
     await userEvent.click(screen.getByRole("button", { name: "カフェ" }));
@@ -43,7 +52,7 @@ describe("SearchScreen", () => {
             : [{ id: "1", text: "東京駅", place_name: "東京駅, 千代田区, 東京都, 日本", center: [139.767, 35.681] }],
       }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     render(<SearchScreen />);
 
     await userEvent.type(screen.getByRole("searchbox"), "東京駅{Enter}");
@@ -58,7 +67,7 @@ describe("SearchScreen", () => {
 
   it("MapTiler のキーがなくても壊れず、ボタンでさがすよう案内する", async () => {
     const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     render(<SearchScreen />);
 
     await userEvent.type(screen.getByRole("searchbox"), "東京駅{Enter}");
@@ -74,7 +83,7 @@ describe("SearchScreen", () => {
         ? Response.json({ places: [{ id: "osm:node/7", name: "ローソン 丸の内店", position: { lng: 139.767, lat: 35.681 } }] })
         : Response.json({ features: [] }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     render(<SearchScreen />);
 
     await userEvent.type(screen.getByRole("searchbox"), "近くのコンビニ{Enter}");
@@ -89,7 +98,7 @@ describe("SearchScreen", () => {
   it("サーバーがだめでも、ブラウザから直接 Overpass には聞かない(406 で断られるため)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn().mockImplementation(async () => new Response("", { status: 502 }));
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     render(<SearchScreen />);
     await userEvent.click(screen.getByRole("button", { name: "駅" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
@@ -99,8 +108,7 @@ describe("SearchScreen", () => {
   it("名前での検索は近くの店を先に、遠い同名の地名は後ろに出す", async () => {
     env.publicEnv.maptilerKey = "KEY";
     // 京都の現在地(テストでは東京駅あたりになる)の近くにだけ店がある
-    vi.stubGlobal(
-      "fetch",
+    stubFetch(
       vi.fn().mockImplementation(async (url: string) => {
         const u = new URL(url);
         const near = u.searchParams.has("bbox");
@@ -120,8 +128,7 @@ describe("SearchScreen", () => {
 
   it("OpenStreetMap が遅いときは MapTiler の近くの結果を先に出す", async () => {
     env.publicEnv.maptilerKey = "KEY";
-    vi.stubGlobal(
-      "fetch",
+    stubFetch(
       vi.fn().mockImplementation((url: string, init?: RequestInit) => {
         if (String(url).includes("maptiler")) {
           const q = decodeURIComponent(new URL(String(url)).pathname.split("/").pop()!.replace(".json", ""));
@@ -143,8 +150,7 @@ describe("SearchScreen", () => {
   it("近くの検索が失敗したら、通信のエラーと「もう一度ためす」を出す", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     let fail = true;
-    vi.stubGlobal(
-      "fetch",
+    stubFetch(
       vi.fn().mockImplementation(async (url: string) =>
         fail
           ? new Response("", { status: 429 })
@@ -164,8 +170,7 @@ describe("SearchScreen", () => {
   it("OpenStreetMap が失敗して MapTiler が0件なら「見つからない」ではなく通信のエラーにする", async () => {
     env.publicEnv.maptilerKey = "KEY";
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.stubGlobal(
-      "fetch",
+    stubFetch(
       vi.fn().mockImplementation(async (url: string) =>
         String(url).includes("maptiler") ? Response.json({ features: [] }) : new Response("", { status: 406 }),
       ),
@@ -177,10 +182,44 @@ describe("SearchScreen", () => {
   });
 });
 
+describe("SearchScreen と HERE", () => {
+  it("HERE のキーがあれば HERE の結果を出し、出所を表示する", async () => {
+    env.publicEnv.maptilerKey = "KEY";
+    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+      String(url).startsWith("/api/here")
+        ? Response.json({
+            source: "here",
+            places: [{ id: "here:1", name: "六角ace", address: "京都府京都市中京区", position: { lng: 135.762, lat: 35.007 } }],
+          })
+        : Response.json({ features: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SearchScreen />);
+    await userEvent.type(screen.getByRole("searchbox"), "六角ace{Enter}");
+    expect(await screen.findByRole("link", { name: "六角aceへ行く" })).toBeInTheDocument();
+    expect(screen.getByText("場所の情報 © HERE")).toBeInTheDocument();
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^\/api\/here\?q=/);
+    // HERE で見つかったら MapTiler には聞かない
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("maptiler"))).toBe(false);
+  });
+
+  it("HERE が0件なら今までの検索にまかせる", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+      String(url).startsWith("/api/here")
+        ? Response.json({ source: "here", places: [] })
+        : Response.json({ places: [{ id: "osm:node/1", name: "駅前カフェ", position: { lng: 139.76, lat: 35.68 } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SearchScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "カフェ" }));
+    expect(await screen.findByRole("link", { name: "駅前カフェへ行く" })).toBeInTheDocument();
+    expect(screen.queryByText("場所の情報 © HERE")).not.toBeInTheDocument();
+  });
+});
+
 describe("SearchScreen のお気に入り", () => {
   it("検索結果のハートでお気に入りに入れられる", async () => {
-    vi.stubGlobal(
-      "fetch",
+    stubFetch(
       vi.fn().mockImplementation(async () =>
         Response.json({ places: [{ id: "osm:node/1", name: "駅前カフェ", position: { lng: 139.76, lat: 35.68 } }] }),
       ),

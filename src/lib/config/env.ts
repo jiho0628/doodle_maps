@@ -24,5 +24,7 @@ export const publicEnv = {
 export function getServerEnv() {
   return {
     orsApiKey: clean(process.env.ORS_API_KEY),
+    /** HERE Geocoding & Search のキー(店・施設の検索。Route Handler 経由でのみ使う) */
+    hereApiKey: clean(process.env.HERE_API_KEY),
   } as const;
 }
